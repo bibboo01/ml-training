@@ -112,21 +112,89 @@ search_space:
 
 แล้วรัน `uv run mlt-train model=xgboost` (ประเภทใน search space: `int`, `float`, `categorical`; ใส่ `log: true` / `step` ได้)
 
-## 5. ใช้โมเดลทำนาย
+## 5. YOLO object detection (รูปภาพ)
+
+ใช้ระบบเดียวกัน (Hydra + Optuna + MLflow + DVC + Excel) กับงานตีกรอบวัตถุด้วย Ultralytics YOLO
+
+### 5.1 ติดตั้ง (ครั้งเดียว)
+
+```powershell
+.\run.ps1 setup-gpu      # มีการ์ดจอ NVIDIA (แนะนำ – เร็วกว่า CPU หลายสิบเท่า)
+.\run.ps1 setup-yolo     # ไม่มี GPU (ใช้ CPU)
+```
+
+### 5.2 วาง dataset
+
+คัดลอกโฟลเดอร์ dataset ที่ label แล้ว (export แบบ **YOLO** จาก Roboflow / CVAT / Label Studio) ไปไว้ที่
+`data\raw\<ชื่อ dataset>\` เช่น `data\raw\helmet\`
+
+```
+data/raw/helmet/
+├── data.yaml            ← names + train/val/test (path แบบ ../train/images ของ Roboflow ใช้ได้)
+├── train/images/*.jpg   train/labels/*.txt
+├── valid/images/*.jpg   valid/labels/*.txt
+└── test/images/*.jpg    test/labels/*.txt     (ถ้ามี)
+```
+
+หรือแบบง่ายสุด `images/` + `labels/` + `classes.txt` ระบบจะแบ่ง train/val/test ให้เอง (val 20%, test 10%)
+
+### 5.3 เทรน
+
+```powershell
+uv run mlt-prepare   data=yolo data.name=helmet          # ตรวจไฟล์
+uv run mlt-featurize data=yolo data.name=helmet          # แบ่ง split + นับกรอบต่อ class
+uv run mlt-train     data=yolo data.name=helmet model=yolo11n
+```
+
+- Optuna จะลอง hyperparameter (lr0, momentum, augmentation, loss gain ฯลฯ) แบบสั้น `model.hpo_epochs` (10 epochs)
+  จำนวน `hpo.n_trials` ครั้ง แล้วเทรนตัวจริงด้วยค่าที่ดีที่สุด `model.params.epochs` (100 epochs)
+- ปรับได้ เช่น `hpo.n_trials=20 model.hpo_epochs=15 model.params.epochs=200 model.params.imgsz=960 model.params.batch=-1`
+- ข้ามการจูน: `hpo=none`  · โมเดลใหญ่ขึ้น: `model=yolo11s` · ใช้ weights ของคุณ: `model.weights=models/pretrained/my.pt`
+- ลองระบบก่อนด้วยตัวอย่าง 8 รูป: `uv run mlt-prepare data=coco8` แล้ว `uv run mlt-train data=coco8 model=yolo11n`
+- หรือผ่าน DVC: แก้ `vars` ใน `pipelines/yolo/dvc.yaml` แล้ว `.\run.ps1 yolo`
+  (เก็บเวอร์ชันรูปด้วย `uv run dvc add data/raw/helmet`)
+
+ผลลัพธ์: `reports/<dataset>/<model>/report.xlsx`, `models/<dataset>/<model>.pt` (best weights),
+โมเดลถูก register ใน MLflow ชื่อ `<dataset>-<model>`, ไฟล์ดิบของ Ultralytics อยู่ที่ `models/<dataset>/<model>/final/`
+
+### 5.4 Metrics ของงาน detection
+
+| ค่า | ความหมาย |
+|---|---|
+| mAP50 / mAP50-95 | ค่ามาตรฐานของ detection (คำนวณบน test ถ้ามี ไม่งั้นใช้ val) |
+| TP | กรอบที่ทายถูก class และซ้อนกับกรอบจริง IoU ≥ 0.45 ที่ confidence ≥ 0.25 |
+| FP | กรอบที่ทายผิด class หรือทายในที่ที่ไม่มีวัตถุ (background) |
+| FN | วัตถุจริงที่หาไม่เจอหรือทายเป็น class อื่น |
+| TN | **ไม่มีในงาน detection** (พื้นหลังมีได้ไม่จำกัด จึงนับไม่ได้) |
+
+เปลี่ยนเกณฑ์ confidence ได้ด้วย `model.evaluation.conf=0.4` รายงาน Excel มีชีตเพิ่ม: **Dataset** (จำนวนกรอบต่อ class/split),
+**TrainingHistory** (mAP และ loss ทุก epoch), **Plots** (confusion matrix, PR/F1 curve, results.png)
+
+### 5.5 ทำนาย
+
+```powershell
+uv run mlt-predict data=yolo data.name=helmet model=yolo11n +input=D:/images        # โฟลเดอร์รูป
+uv run mlt-predict data=yolo data.name=helmet model=yolo11n +input=D:/cam/clip.mp4 +conf=0.4
+```
+
+ได้รูป/วิดีโอที่วาดกรอบแล้ว + `detections.csv` (ไฟล์, class, conf, x1, y1, x2, y2) ใน `reports/<dataset>/<model>/predict/`
+
+## 6. ใช้โมเดลทำนาย (ข้อมูลตาราง)
 
 ```powershell
 uv run mlt-predict +input=data/external/new_rows.csv                          # ใช้ไฟล์ .joblib ล่าสุด
 uv run mlt-predict +input=new.csv +model_uri=models:/breast_cancer-random_forest/latest   # จาก Model Registry
 ```
 
-## 6. โครงสร้างโปรเจกต์ (Cookiecutter Data Science v2)
+## 7. โครงสร้างโปรเจกต์ (Cookiecutter Data Science v2)
 
 ```
 ml-training/
 ├── configs/                 Hydra configs
 │   ├── config.yaml          ค่าหลัก (paths, mlflow, evaluation, report)
-│   ├── data/                breast_cancer, iris, csv, openml
-│   ├── model/               random_forest, logistic_regression, gradient_boosting, svm, lightning_mlp
+│   ├── data/                breast_cancer, iris, csv, openml, coco8, yolo
+│   ├── model/               random_forest, logistic_regression, gradient_boosting, svm, lightning_mlp,
+│   │                        yolo11n, yolo11s
 │   └── hpo/                 optuna, none
 ├── data/
 │   ├── external/            ไฟล์จากภายนอก (ของคุณ)
@@ -141,20 +209,24 @@ ml-training/
 │   ├── features.py          stage 2: clean + split -> data/processed
 │   ├── metrics.py           TP/FP/FN/TN + metrics ทั้งหมด
 │   ├── hpo.py               Optuna จาก search_space ใน YAML
+│   ├── detection_data.py    dataset YOLO: ตรวจ, แบ่ง split, นับกรอบ
+│   ├── tracking.py          MLflow helpers
 │   ├── modeling/
 │   │   ├── factory.py       model abstraction: Pipeline(preprocess -> model ใดก็ได้)
 │   │   ├── lightning_models.py   PyTorch Lightning MLP แบบ sklearn API
 │   │   ├── train.py         stage 3: tune -> train -> evaluate -> MLflow -> Excel
+│   │   ├── yolo.py          backend YOLO (Ultralytics) + TP/FP/FN ต่อ class
 │   │   └── predict.py       ทำนาย batch
 │   └── reporting/           excel.py (XlsxWriter native charts), plots.py (PNG)
 ├── tests/                   pytest (unit + end-to-end)
-├── dvc.yaml / dvc.lock      DVC pipeline
+├── dvc.yaml / dvc.lock      DVC pipeline (ข้อมูลตาราง)
+├── pipelines/yolo/dvc.yaml  DVC pipeline (YOLO)
 ├── pyproject.toml / uv.lock dependencies (uv)
 ├── run.ps1                  คำสั่งลัดสำหรับ Windows (Makefile สำหรับ Linux/macOS)
 └── docs/ROADMAP.md          แผนไป Level 4 และ 5
 ```
 
-## 7. หลักการที่ทำให้ได้ Level 3
+## 8. หลักการที่ทำให้ได้ Level 3
 
 - **Reproducible**: `uv.lock` ล็อก dependency, `seed` ใน config, DVC ล็อก hash ของข้อมูลและโมเดลใน `dvc.lock`
 - **Config-driven**: ไม่มีค่า hard-code ทุกอย่างอยู่ใน YAML และ override ได้, config ของทุก run ถูกเก็บใน MLflow
@@ -163,7 +235,7 @@ ml-training/
 - **Tracked**: ทุก trial เป็น nested run ใน MLflow, โมเดลสุดท้ายถูก register ใน Model Registry อัตโนมัติ
 - **แยก notebooks ออกจาก src/** และทดสอบได้ด้วย `.\run.ps1 test`
 
-## 8. ทำงานร่วมกับ Git / DVC remote
+## 9. ทำงานร่วมกับ Git / DVC remote
 
 ```powershell
 git add . ; git commit -m "first experiment"

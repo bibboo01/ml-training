@@ -1,0 +1,12 @@
+# Example object-detection dataset: COCO8 (8 images, 80 classes) – auto-downloaded by Ultralytics
+# into data/raw/coco8. Use it to check the YOLO pipeline end-to-end in ~1 minute.
+#   uv run mlt-prepare data=coco8 ; uv run mlt-featurize data=coco8
+#   uv run mlt-train data=coco8 model=yolo11n
+name: coco8
+task: detect
+source: ultralytics      # ultralytics (built-in, auto-download) | yolo (your own folder)
+loader: coco8.yaml       # any Ultralytics dataset yaml: coco8.yaml, coco128.yaml, VOC.yaml ...
+path: null
+class_names: null
+val_size: 0.2            # only used when the dataset has no val split
+test_size: 0.0

@@ -3,6 +3,10 @@
 uv run mlt-predict +input=data/external/new_rows.csv
 uv run mlt-predict +input=new.csv +output=preds.csv \
     +model_uri=models:/breast_cancer-random_forest/latest
+
+YOLO (input = image, folder of images, video or URL):
+uv run mlt-predict data=coco8 model=yolo11n +input=data/raw/coco8/images/val
+uv run mlt-predict data=helmet model=yolo11n +input=D:/cam/clip.mp4 +conf=0.4
 """
 
 from __future__ import annotations
@@ -17,8 +21,59 @@ from omegaconf import DictConfig
 from ml_training.utils import CONFIG_DIR, log, sqlite_uri
 
 
+def predict_yolo(cfg: DictConfig) -> Path:
+    """Detect objects; saves annotated images/videos and a CSV with one row per box."""
+    from ultralytics import YOLO
+
+    from ml_training.detection_data import configure_ultralytics
+
+    configure_ultralytics(cfg)
+    root = Path(cfg.paths.root)
+    weights = Path(cfg.get("weights") or Path(cfg.paths.run_model).with_suffix(".pt"))
+    source = Path(str(cfg.input))
+    source = str(source if source.is_absolute() or "://" in str(cfg.input) else root / source)
+    out_dir = Path(cfg.paths.run_reports) / "predict"
+    model = YOLO(str(weights))
+    rows = []
+    results = model.predict(
+        source=source,
+        conf=float(cfg.get("conf", 0.25)),
+        save=True,
+        project=str(out_dir.parent),
+        name=out_dir.name,
+        exist_ok=True,
+        stream=True,
+        verbose=False,
+    )
+    for r in results:
+        for box, c, s in zip(
+            r.boxes.xyxy.tolist(), r.boxes.cls.tolist(), r.boxes.conf.tolist(), strict=True
+        ):
+            rows.append(
+                {
+                    "source": r.path,
+                    "class": r.names[int(c)],
+                    "conf": s,
+                    "x1": box[0],
+                    "y1": box[1],
+                    "x2": box[2],
+                    "y2": box[3],
+                }
+            )
+    out_path = Path(cfg.get("output") or out_dir / "detections.csv")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows, columns=["source", "class", "conf", "x1", "y1", "x2", "y2"]).to_csv(
+        out_path, index=False
+    )
+    log.info("%d detections -> %s  (annotated files in %s)", len(rows), out_path, out_dir)
+    return out_path
+
+
 @hydra.main(version_base="1.3", config_path=CONFIG_DIR, config_name="config")
 def main(cfg: DictConfig) -> None:
+    if cfg.model.backend == "ultralytics":
+        predict_yolo(cfg)
+        return
     root = Path(cfg.paths.root)
     inp = Path(cfg.input)
     df = pd.read_csv(inp if inp.is_absolute() else root / inp)

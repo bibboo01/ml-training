@@ -5,6 +5,7 @@ uv run mlt-train model=gradient_boosting hpo.n_trials=50
 uv run mlt-train data=iris model=logistic_regression
 uv run mlt-train hpo=none                              # no tuning, just model.params
 uv run mlt-train -m model=random_forest,logistic_regression,svm   # compare models
+uv run mlt-train data=coco8 model=yolo11n                          # YOLO object detection
 """
 
 from __future__ import annotations
@@ -29,33 +30,23 @@ from ml_training.metrics import evaluate, predict_with_threshold
 from ml_training.modeling.factory import build_model
 from ml_training.reporting.excel import write_report
 from ml_training.reporting.plots import save_figures
+from ml_training.tracking import log_params, setup_mlflow
 from ml_training.utils import (
     CONFIG_DIR,
     ensure_dir,
-    file_uri,
     flatten_dict,
     log,
     set_seed,
-    sqlite_uri,
     write_json,
 )
 
 
-def setup_mlflow(cfg: DictConfig) -> str:
-    mlflow.set_tracking_uri(sqlite_uri(cfg.mlflow.tracking_uri))
-    exp = mlflow.get_experiment_by_name(cfg.experiment_name)
-    if exp is None:
-        return mlflow.create_experiment(
-            cfg.experiment_name, artifact_location=file_uri(cfg.mlflow.artifact_location)
-        )
-    return exp.experiment_id
-
-
-def _log_params(params: dict) -> None:
-    mlflow.log_params({k: str(v)[:500] for k, v in params.items()})
-
-
 def train(cfg: DictConfig) -> dict[str, float]:
+    if cfg.model.backend == "ultralytics":  # image object detection (YOLO)
+        from ml_training.modeling.yolo import train_yolo
+
+        return train_yolo(cfg)
+
     set_seed(cfg.seed)
     X_tr, y_tr, X_val, y_val, X_te, y_te, meta = load_splits(cfg.paths.processed)
     class_names, n_classes = meta["class_names"], meta["n_classes"]
@@ -90,7 +81,7 @@ def train(cfg: DictConfig) -> dict[str, float]:
                     experiment_id=experiment_id, run_name=f"trial-{trial.number}", nested=True
                 ):
                     mlflow.set_tag("optuna_trial", trial.number)
-                    _log_params(params)
+                    log_params(params)
                     model = build_model(cfg.model, feats, params)
                     t0 = time.perf_counter()
                     model.fit(X_tr, y_tr)
@@ -124,7 +115,7 @@ def train(cfg: DictConfig) -> dict[str, float]:
         model.fit(X_fit, y_fit)
         fit_seconds = time.perf_counter() - t0
         all_params = {**OmegaConf.to_container(cfg.model.params, resolve=True), **best_params}
-        _log_params({f"model.{k}": v for k, v in all_params.items()})
+        log_params({f"model.{k}": v for k, v in all_params.items()})
         mlflow.log_params(
             {
                 "hpo.n_trials": hpo.n_trials if hpo.enabled else 0,

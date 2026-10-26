@@ -1,6 +1,7 @@
 """Excel report with native (editable) Excel charts via XlsxWriter.
 
 Sheets: Summary · Confusion · PerClass · ROC · HPO_Trials · ParamImportance · Predictions · Config
+Detection runs add: Dataset · TrainingHistory · Plots (Ultralytics PNGs).
 """
 
 from __future__ import annotations
@@ -15,6 +16,9 @@ import pandas as pd
 from ml_training.metrics import EvalResult
 
 BOUNDED_METRICS = [
+    "map50",
+    "map50_95",
+    "map75",
     "accuracy",
     "balanced_accuracy",
     "precision",
@@ -82,6 +86,9 @@ def write_report(
     predictions: pd.DataFrame | None = None,
     config_flat: dict[str, Any] | None = None,
     val_summary: dict[str, float] | None = None,
+    history: pd.DataFrame | None = None,
+    images: list[Path] | None = None,
+    dataset: pd.DataFrame | None = None,
 ) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -93,6 +100,12 @@ def write_report(
         _per_class_sheet(wb, f, result)
         if result.roc:
             _roc_sheet(wb, f, result)
+        if dataset is not None and len(dataset):
+            _dataset_sheet(wb, f, dataset)
+        if history is not None and len(history):
+            _history_sheet(wb, f, history)
+        if images:
+            _images_sheet(wb, f, images)
         if trials is not None and len(trials):
             _trials_sheet(wb, f, trials, run_info.get("hpo_metric", "objective"))
         if importances:
@@ -173,7 +186,12 @@ def _confusion_sheet(wb, f, result: EvalResult):
 
     row = r1 + 3
     s = result.summary
-    label = "positive class" if n == 2 else "sum over classes (one-vs-rest)"
+    if "TN" not in s:
+        label = "all classes (object detection: TN is not defined)"
+    elif n == 2:
+        label = "positive class"
+    else:
+        label = "sum over classes (one-vs-rest)"
     ws.write(row, 0, f"TP / FP / FN / TN – {label}", f["key"])
     ws.write(row + 1, 1, "Pred +", f["h"])
     ws.write(row + 1, 2, "Pred −", f["h"])
@@ -182,26 +200,32 @@ def _confusion_sheet(wb, f, result: EvalResult):
     ws.write(row + 2, 1, f"TP = {s['TP']}", f["tp"])
     ws.write(row + 2, 2, f"FN = {s['FN']}", f["bad"])
     ws.write(row + 3, 1, f"FP = {s['FP']}", f["bad"])
-    ws.write(row + 3, 2, f"TN = {s['TN']}", f["tp"])
+    ws.write(row + 3, 2, f"TN = {s['TN']}" if "TN" in s else "TN = n/a", f["tp"])
     ws.set_row(row + 2, 30)
     ws.set_row(row + 3, 30)
     ws.set_column(1, max(c1, 2), 16)
 
     # Stacked column chart: TP/FP/FN/TN per class (data from the PerClass sheet)
     pc_rows = len(result.per_class)
+    pc_cols = list(result.per_class.columns)
     chart = wb.add_chart({"type": "column", "subtype": "stacked"})
-    for j, (name, color) in enumerate(
-        zip(["TP", "FP", "FN", "TN"], ["#16A34A", "#F59E0B", "#DC2626", "#94A3B8"], strict=True)
+    for name, color in zip(
+        ["TP", "FP", "FN", "TN"], ["#16A34A", "#F59E0B", "#DC2626", "#94A3B8"], strict=True
     ):
+        if name not in pc_cols:
+            continue
+        j = pc_cols.index(name)
         chart.add_series(
             {
                 "name": name,
                 "categories": ["PerClass", 1, 0, pc_rows, 0],
-                "values": ["PerClass", 1, 1 + j, pc_rows, 1 + j],
+                "values": ["PerClass", 1, j, pc_rows, j],
                 "fill": {"color": color},
             }
         )
-    chart.set_title({"name": "TP / FP / FN / TN per class"})
+    chart.set_title(
+        {"name": "TP / FP / FN / TN per class" if "TN" in pc_cols else "TP / FP / FN per class"}
+    )
     chart.set_size({"width": 620, "height": 360})
     ws.insert_chart(2, c1 + 2, chart)
 
@@ -212,7 +236,10 @@ def _per_class_sheet(wb, f, result: EvalResult):
     _, r1, _, _ = _write_df(ws, pc, 0, 0, f)
     cols = list(pc.columns)
     chart = wb.add_chart({"type": "column"})
-    for i, m in enumerate(["precision", "recall", "specificity", "f1"]):
+    shown = [
+        m for m in ["precision", "recall", "specificity", "f1", "AP50", "AP50_95"] if m in cols
+    ]
+    for i, m in enumerate(shown):
         j = cols.index(m)
         chart.add_series(
             {
@@ -285,18 +312,20 @@ def _trials_sheet(wb, f, trials: pd.DataFrame, metric: str):
                 "fill": {"color": PALETTE[0]},
                 "border": {"color": PALETTE[0]},
             },
+            "line": {"none": True},
         }
     )
-    line = wb.add_chart({"type": "scatter", "subtype": "straight"})
-    line.add_series(
+    # One scatter chart, two series: markers for each trial, a line for best-so-far.
+    # (XlsxWriter cannot combine two scatter charts.)
+    chart.add_series(
         {
             "name": "best so far",
             "categories": ["HPO_Trials", 1, num, r1, num],
             "values": ["HPO_Trials", 1, best, r1, best],
             "line": {"color": PALETTE[1], "width": 2.25},
+            "marker": {"type": "none"},
         }
     )
-    chart.combine(line)
     chart.set_title({"name": "Optuna optimisation history"})
     chart.set_x_axis({"name": "Trial"})
     chart.set_y_axis({"name": metric})
@@ -322,3 +351,69 @@ def _importance_sheet(wb, f, importances: dict[str, float]):
     chart.set_y_axis({"reverse": True})
     chart.set_legend({"none": True})
     ws.insert_chart(1, 3, chart)
+
+
+def _dataset_sheet(wb, f, dataset: pd.DataFrame):
+    ws = wb.add_worksheet("Dataset")
+    _, r1, _, c1 = _write_df(ws, dataset, 0, 0, f)
+    chart = wb.add_chart({"type": "bar", "subtype": "stacked"})
+    for j in range(1, c1 + 1):
+        chart.add_series(
+            {
+                "name": ["Dataset", 0, j],
+                "categories": ["Dataset", 1, 0, r1, 0],
+                "values": ["Dataset", 1, j, r1, j],
+                "fill": {"color": PALETTE[(j - 1) % len(PALETTE)]},
+            }
+        )
+    chart.set_title({"name": "Boxes per class and split"})
+    chart.set_y_axis({"reverse": True})
+    chart.set_size({"width": 620, "height": max(320, 22 * r1 + 120)})
+    ws.insert_chart(1, c1 + 2, chart)
+
+
+def _history_sheet(wb, f, history: pd.DataFrame):
+    """Per-epoch curves from Ultralytics results.csv."""
+    ws = wb.add_worksheet("TrainingHistory")
+    _, r1, _, _ = _write_df(ws, history, 0, 0, f)
+    ws.freeze_panes(1, 1)
+    cols = list(history.columns)
+    x = cols.index("epoch") if "epoch" in cols else 0
+    groups = [
+        ("Validation metrics per epoch", [c for c in cols if c.startswith("metrics/")], (0, 1)),
+        ("Losses per epoch", [c for c in cols if "loss" in c], None),
+    ]
+    for k, (title, series, yrange) in enumerate(groups):
+        if not series:
+            continue
+        chart = wb.add_chart({"type": "line"})
+        for i, c in enumerate(series):
+            j = cols.index(c)
+            chart.add_series(
+                {
+                    "name": ["TrainingHistory", 0, j],
+                    "categories": ["TrainingHistory", 1, x, r1, x],
+                    "values": ["TrainingHistory", 1, j, r1, j],
+                    "line": {"color": PALETTE[i % len(PALETTE)], "width": 1.75},
+                }
+            )
+        chart.set_title({"name": title})
+        chart.set_x_axis({"name": "epoch"})
+        if yrange:
+            chart.set_y_axis({"min": yrange[0], "max": yrange[1]})
+        chart.set_size({"width": 720, "height": 400})
+        ws.insert_chart(r1 + 2 + k * 21, 0, chart)
+
+
+def _images_sheet(wb, f, images: list[Path]):
+    from PIL import Image
+
+    ws = wb.add_worksheet("Plots")
+    row = 0
+    for img in images:
+        with Image.open(img) as im:
+            w, h = im.size
+        scale = min(1.0, 900 / w)
+        ws.write(row, 0, Path(img).name, f["key"])
+        ws.insert_image(row + 1, 0, str(img), {"x_scale": scale, "y_scale": scale})
+        row += int(h * scale / 20) + 3  # default row height is 20 px

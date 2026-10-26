@@ -36,3 +36,7 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+
+# Local GPU marker created by run.ps1 setup-gpu
+.gpu
+/reports/**/predict/

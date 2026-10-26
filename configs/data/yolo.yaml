@@ -1,0 +1,17 @@
+# Your own labelled YOLO dataset (Roboflow / CVAT / Label Studio "YOLO" export).
+# 1) copy the export folder to data/raw/<name>/   e.g. data/raw/helmet/
+#      data.yaml            <- names + train/val/test (Roboflow's ../train/images paths are OK)
+#      train/images, train/labels, valid/images, valid/labels, (test/...)
+#    or simply  images/ + labels/  (+ classes.txt) – val/test are then split automatically
+# 2) uv run mlt-prepare data=yolo data.name=helmet
+#    uv run mlt-featurize data=yolo data.name=helmet
+#    uv run mlt-train data=yolo data.name=helmet model=yolo11n
+# Tip: copy this file to configs/data/helmet.yaml and set name/path, then use data=helmet
+name: my_yolo
+task: detect
+source: yolo
+path: data/raw/${data.name}   # folder that contains data.yaml (or images/ + labels/)
+yaml_file: data.yaml
+class_names: null        # only needed when there is no data.yaml / classes.txt
+val_size: 0.2            # only used when the dataset has no val split
+test_size: 0.1           # only used when the dataset has no val split

@@ -1,0 +1,38 @@
+# DVC pipeline for YOLO object detection:  data/raw/<dataset> -> splits -> tuned YOLO + reports
+#   1) put your dataset in data/raw/<dataset>/  and version it:  uv run dvc add data/raw/<dataset>
+#      (built-in example: uv run mlt-prepare data=coco8 downloads data/raw/coco8)
+#   2) edit `vars` below, then:  uv run dvc repro pipelines/yolo/dvc.yaml
+# The raw folder is only ever an input here, so DVC never deletes or rewrites your images.
+vars:
+  - data_cfg: coco8          # config in configs/data/ (coco8, yolo, or your own e.g. helmet)
+    dataset: coco8           # data.name  (folder name in data/raw/)
+    model: yolo11n
+    n_trials: 10
+
+stages:
+  featurize:
+    wdir: ../..
+    cmd: uv run mlt-featurize data=${data_cfg} data.name=${dataset}
+    deps:
+      - data/raw/${dataset}
+      - src/ml_training/detection_data.py
+      - configs/data/${data_cfg}.yaml
+    outs:
+      - data/processed/${dataset}
+
+  train:
+    wdir: ../..
+    cmd: uv run mlt-train data=${data_cfg} data.name=${dataset} model=${model} hpo.n_trials=${n_trials}
+    deps:
+      - data/processed/${dataset}
+      - src/ml_training/modeling/yolo.py
+      - src/ml_training/reporting
+      - configs/model/${model}.yaml
+      - configs/hpo/optuna.yaml
+    outs:
+      - models/${dataset}/${model}.pt
+      - reports/${dataset}/${model}/report.xlsx
+      - reports/${dataset}/${model}/figures
+    metrics:
+      - reports/${dataset}/${model}/metrics.json:
+          cache: false

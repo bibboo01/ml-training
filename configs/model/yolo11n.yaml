@@ -1,0 +1,41 @@
+# Ultralytics YOLO object detection. Requires: uv sync --extra yolo   (GPU: .\run.ps1 setup-gpu)
+# Other sizes: yolo11s.pt / yolo11m.pt / yolo11l.pt, yolov8n.pt, or your own .pt in models/pretrained/
+name: yolo11n
+backend: ultralytics
+class_path: ultralytics.YOLO
+weights: yolo11n.pt      # downloaded automatically to models/pretrained/
+hpo_metric: map50_95     # Optuna objective for detection: map50_95 | map50 | f1 | precision | recall
+hpo_epochs: 10           # epochs per Optuna trial (short runs); the final model uses params.epochs
+params:                  # passed straight to model.train(...) – see docs.ultralytics.com/modes/train
+  epochs: 100
+  imgsz: 640
+  batch: 16              # -1 = auto batch for your GPU memory
+  patience: 30
+  device: null           # null = auto (GPU if available), "cpu", 0, "0,1"
+  workers: 0             # 0 is the safest on Windows; raise (e.g. 4-8) for speed
+  optimizer: auto
+  cos_lr: false
+  close_mosaic: 10
+  cache: false           # true / "ram" / "disk" speeds up small datasets
+  seed: ${seed}
+  deterministic: true
+evaluation:
+  conf: 0.25             # confidence threshold for the TP/FP/FN confusion matrix
+  iou: 0.5               # IoU threshold that counts a detection as TP
+# Optuna search space (merged into params for each trial)
+search_space:
+  lr0: {type: float, low: 1.0e-4, high: 2.0e-2, log: true}
+  lrf: {type: float, low: 0.01, high: 0.5}
+  momentum: {type: float, low: 0.8, high: 0.98}
+  weight_decay: {type: float, low: 0.0, high: 1.0e-3}
+  warmup_epochs: {type: float, low: 0.0, high: 5.0}
+  box: {type: float, low: 4.0, high: 10.0}
+  cls: {type: float, low: 0.3, high: 2.0}
+  hsv_h: {type: float, low: 0.0, high: 0.05}
+  hsv_s: {type: float, low: 0.3, high: 0.9}
+  degrees: {type: float, low: 0.0, high: 10.0}
+  translate: {type: float, low: 0.0, high: 0.3}
+  scale: {type: float, low: 0.2, high: 0.9}
+  fliplr: {type: float, low: 0.0, high: 0.5}
+  mosaic: {type: float, low: 0.5, high: 1.0}
+  mixup: {type: float, low: 0.0, high: 0.2}
