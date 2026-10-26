@@ -1,0 +1,13 @@
+# Any dataset from https://www.openml.org by name (needs internet on first run).
+#   uv run mlt-prepare data=openml data.loader=credit-g data.name=credit_g
+name: credit_g
+source: openml
+loader: credit-g         # OpenML dataset name
+version: 1
+path: null
+target: class            # null = OpenML default target
+class_names: null
+drop_columns: []
+test_size: 0.2
+val_size: 0.2
+stratify: true

@@ -1,0 +1,11 @@
+# Multiclass example (3 classes) – shows per-class one-vs-rest TP/FP/FN/TN.
+name: iris
+source: sklearn
+loader: load_iris
+path: null
+target: target
+class_names: [setosa, versicolor, virginica]
+drop_columns: []
+test_size: 0.25
+val_size: 0.2
+stratify: true

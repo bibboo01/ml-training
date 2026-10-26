@@ -1,0 +1,12 @@
+# Skip tuning: train once with model.params
+enabled: false
+n_trials: 0
+timeout: null
+metric: f1
+direction: maximize
+sampler: tpe
+pruner: none
+storage: null
+study_name: ${data.name}-${model.name}
+load_if_exists: false
+refit_on_train_val: true

@@ -1,0 +1,14 @@
+# Bring your own data: any CSV/Parquet/Excel file with a target column.
+#   uv run mlt-prepare data=csv data.name=churn data.path=data/external/churn.csv data.target=Churn
+# Numeric columns are imputed + scaled, text/categorical columns are imputed + one-hot encoded
+# automatically, so mixed tabular data works without extra code.
+name: my_dataset
+source: csv
+loader: null
+path: data/external/my_dataset.csv
+target: target
+class_names: null        # null = use the values found in the target column
+drop_columns: []         # e.g. [id, customer_id]
+test_size: 0.2
+val_size: 0.2
+stratify: true

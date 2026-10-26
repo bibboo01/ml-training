@@ -1,0 +1,13 @@
+# Example dataset: Wisconsin breast cancer (binary, 569 rows) – ships with scikit-learn,
+# so no download is needed.
+name: breast_cancer
+source: sklearn          # sklearn | csv | openml
+loader: load_breast_cancer
+path: null
+target: target
+# Optional: human-readable class labels (index = encoded class)
+class_names: [malignant, benign]
+drop_columns: []
+test_size: 0.2
+val_size: 0.2            # fraction of the remaining train set used for HPO validation
+stratify: true

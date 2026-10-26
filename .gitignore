@@ -1,0 +1,38 @@
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Experiment tracking (local stores – back them up or point MLflow at a server)
+mlruns/
+mlartifacts/
+mlflow.db
+optuna.db
+
+# Hydra run directories
+outputs/
+multirun/
+
+# Data & models are versioned by DVC, not git
+/data/raw/*
+/data/interim/*
+/data/processed/*
+/data/external/*
+/models/*
+# (metrics.json / per_class.csv stay in git so `dvc metrics diff` works across commits)
+/reports/**/*.xlsx
+/reports/**/figures/
+/reports/**/optuna_trials.csv
+/reports/*.csv
+!**/.gitkeep
+
+# OS / editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

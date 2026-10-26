@@ -1,0 +1,99 @@
+schema: '2.0'
+stages:
+  prepare:
+    cmd: uv run mlt-prepare data=breast_cancer
+    deps:
+    - path: configs/data/breast_cancer.yaml
+      hash: md5
+      md5: a9acadbb147ea61ceedee40785419875
+      size: 473
+    - path: src/ml_training/dataset.py
+      hash: md5
+      md5: 4572a98f72a0bf546edee673ce0384ed
+      size: 2184
+    outs:
+    - path: data/raw/breast_cancer.csv
+      hash: md5
+      md5: 24d9881fad8cfb3d94f5276d372e422b
+      size: 121955
+  featurize:
+    cmd: uv run mlt-featurize data=breast_cancer
+    deps:
+    - path: configs/data/breast_cancer.yaml
+      hash: md5
+      md5: a9acadbb147ea61ceedee40785419875
+      size: 473
+    - path: data/raw/breast_cancer.csv
+      hash: md5
+      md5: 24d9881fad8cfb3d94f5276d372e422b
+      size: 121955
+    - path: src/ml_training/features.py
+      hash: md5
+      md5: 56e0690d08307a9099e02bbf344f9477
+      size: 3604
+    outs:
+    - path: data/processed/breast_cancer
+      hash: md5
+      md5: 469ed19cdab40b3c62bd4ee3cb3eb7b3.dir
+      size: 124378
+      nfiles: 4
+  train:
+    cmd: uv run mlt-train data=breast_cancer model=random_forest hpo.n_trials=30
+    deps:
+    - path: configs/config.yaml
+      hash: md5
+      md5: e5d27aa57736a6f1200c5fec34453257
+      size: 1369
+    - path: configs/hpo/optuna.yaml
+      hash: md5
+      md5: c9c86346863219acc76842c213725bb2
+      size: 558
+    - path: configs/model/random_forest.yaml
+      hash: md5
+      md5: 1d3b70b973b370a29bf7c2bf7075bf6c
+      size: 597
+    - path: data/processed/breast_cancer
+      hash: md5
+      md5: 469ed19cdab40b3c62bd4ee3cb3eb7b3.dir
+      size: 124378
+      nfiles: 4
+    - path: src/ml_training/hpo.py
+      hash: md5
+      md5: 5ff0cd6ca7f7619050885bf6d67953f1
+      size: 3694
+    - path: src/ml_training/metrics.py
+      hash: md5
+      md5: 643a9129b8d6cba886e7c9974e7ab590
+      size: 4721
+    - path: src/ml_training/modeling
+      hash: md5
+      md5: c186cf95a7feb8dd7c38c41feb895242.dir
+      size: 37400
+      nfiles: 8
+    - path: src/ml_training/reporting
+      hash: md5
+      md5: b8c14b5b5d9362efaff5b513c2b93777.dir
+      size: 36786
+      nfiles: 6
+    outs:
+    - path: models/breast_cancer/random_forest.joblib
+      hash: md5
+      md5: 0535d6cc4b95cdd66649e1908e0e97c5
+      size: 396173
+    - path: reports/breast_cancer/random_forest/figures
+      hash: md5
+      md5: a9dfe26c18c05e89e2cd802d4322e921.dir
+      size: 42558
+      nfiles: 2
+    - path: reports/breast_cancer/random_forest/metrics.json
+      hash: md5
+      md5: 10d15e2ecd598ce6c28a6b497ba3f054
+      size: 1063
+    - path: reports/breast_cancer/random_forest/per_class.csv
+      hash: md5
+      md5: 5c0979d36a811526b89adff46fbd59da
+      size: 386
+    - path: reports/breast_cancer/random_forest/report.xlsx
+      hash: md5
+      md5: ea7760090d476964ff25a8b44cb0cc93
+      size: 53939

@@ -1,0 +1,10 @@
+name: svm
+backend: sklearn
+class_path: sklearn.svm.SVC
+params:
+  probability: true
+  random_state: ${seed}
+search_space:
+  C: {type: float, low: 1.0e-2, high: 100.0, log: true}
+  gamma: {type: categorical, choices: [scale, auto]}
+  kernel: {type: categorical, choices: [rbf, linear]}

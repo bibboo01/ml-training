@@ -1,0 +1,13 @@
+enabled: true
+n_trials: 30
+timeout: null              # seconds, null = no limit
+metric: f1                 # accuracy | precision | recall | f1 | roc_auc | specificity
+direction: maximize
+sampler: tpe               # tpe | random | cmaes
+pruner: median             # median | none
+# Persist studies so they can be resumed / inspected with optuna-dashboard.
+storage: sqlite:///${paths.root}/optuna.db
+study_name: ${data.name}-${model.name}
+load_if_exists: false
+# Refit the best params on train+val before the final test evaluation.
+refit_on_train_val: true

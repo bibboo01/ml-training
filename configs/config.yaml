@@ -1,0 +1,47 @@
+# Main Hydra config. Override anything from the command line, e.g.
+#   uv run mlt-train model=logistic_regression hpo.n_trials=50
+#   uv run mlt-train data=csv data.path=data/raw/my.csv data.target=label
+defaults:
+  - data: breast_cancer
+  - model: random_forest
+  - hpo: optuna
+  - _self_
+
+seed: 42
+experiment_name: ${data.name}
+
+paths:
+  root: ${hydra:runtime.cwd}
+  raw: ${paths.root}/data/raw
+  processed: ${paths.root}/data/processed/${data.name}
+  models: ${paths.root}/models
+  reports: ${paths.root}/reports
+  # Per-run outputs (Excel report, metrics.json, figures, model file)
+  run_reports: ${paths.reports}/${data.name}/${model.name}
+  run_model: ${paths.models}/${data.name}/${model.name}.joblib
+
+mlflow:
+  # SQLite backend is required for the Model Registry and works on Windows.
+  tracking_uri: sqlite:///${paths.root}/mlflow.db
+  artifact_location: ${paths.root}/mlruns
+  register_model: true
+  registered_model_name: ${data.name}-${model.name}
+
+evaluation:
+  # Average used for the headline precision/recall/F1 (binary | macro | weighted)
+  average: macro
+  # Threshold for binary classification on predict_proba
+  threshold: 0.5
+
+report:
+  excel: true
+  filename: report.xlsx
+
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+  job:
+    chdir: false

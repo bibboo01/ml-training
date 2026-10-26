@@ -1,0 +1,19 @@
+# PyTorch Lightning MLP for tabular data. Requires: uv sync --extra dl
+name: lightning_mlp
+backend: lightning
+class_path: ml_training.modeling.lightning_models.LightningMLPClassifier
+params:
+  hidden_dims: [64, 32]
+  dropout: 0.1
+  lr: 1.0e-3
+  weight_decay: 0.0
+  batch_size: 64
+  max_epochs: 50
+  patience: 8
+  random_state: ${seed}
+  accelerator: auto        # cpu | gpu | auto
+search_space:
+  lr: {type: float, low: 1.0e-4, high: 1.0e-2, log: true}
+  dropout: {type: float, low: 0.0, high: 0.5}
+  hidden_dims: {type: categorical, choices: [[32], [64, 32], [128, 64], [256, 128, 64]]}
+  batch_size: {type: categorical, choices: [32, 64, 128]}

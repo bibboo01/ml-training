@@ -1,0 +1,9 @@
+name: logistic_regression
+backend: sklearn
+class_path: sklearn.linear_model.LogisticRegression
+params:
+  max_iter: 2000
+  random_state: ${seed}
+search_space:
+  C: {type: float, low: 1.0e-4, high: 100.0, log: true}
+  class_weight: {type: categorical, choices: [null, balanced]}

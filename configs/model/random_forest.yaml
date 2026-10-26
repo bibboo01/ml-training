@@ -1,0 +1,15 @@
+# Any scikit-learn compatible estimator works: just point class_path at it.
+name: random_forest
+backend: sklearn
+class_path: sklearn.ensemble.RandomForestClassifier
+params:
+  n_estimators: 200
+  random_state: ${seed}
+  n_jobs: -1
+# Optuna search space. Types: int | float | categorical  (float/int accept log: true)
+search_space:
+  n_estimators: {type: int, low: 50, high: 500, step: 50}
+  max_depth: {type: int, low: 2, high: 20}
+  min_samples_split: {type: int, low: 2, high: 20}
+  min_samples_leaf: {type: int, low: 1, high: 10}
+  max_features: {type: categorical, choices: [sqrt, log2, null]}

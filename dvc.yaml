@@ -1,0 +1,50 @@
+# DVC pipeline:  raw data -> processed splits -> tuned model + reports
+# Run everything (only stages whose inputs changed are re-run):   uv run dvc repro
+# Switch dataset / model by editing `vars` below (or: dvc repro --set-param is not needed – just edit).
+vars:
+  - dataset: breast_cancer
+    model: random_forest
+    n_trials: 30
+
+stages:
+  prepare:
+    cmd: uv run mlt-prepare data=${dataset}
+    deps:
+      - src/ml_training/dataset.py
+      - configs/data/${dataset}.yaml
+    outs:
+      - data/raw/${dataset}.csv
+
+  featurize:
+    cmd: uv run mlt-featurize data=${dataset}
+    deps:
+      - data/raw/${dataset}.csv
+      - src/ml_training/features.py
+      - configs/data/${dataset}.yaml
+    outs:
+      - data/processed/${dataset}
+
+  train:
+    cmd: uv run mlt-train data=${dataset} model=${model} hpo.n_trials=${n_trials}
+    deps:
+      - data/processed/${dataset}
+      - src/ml_training/modeling
+      - src/ml_training/metrics.py
+      - src/ml_training/hpo.py
+      - src/ml_training/reporting
+      - configs/config.yaml
+      - configs/model/${model}.yaml
+      - configs/hpo/optuna.yaml
+    outs:
+      - models/${dataset}/${model}.joblib
+      - reports/${dataset}/${model}/report.xlsx
+      - reports/${dataset}/${model}/figures
+    metrics:
+      - reports/${dataset}/${model}/metrics.json:
+          cache: false
+    plots:
+      - reports/${dataset}/${model}/per_class.csv:
+          cache: false
+          template: bar_horizontal
+          x: f1
+          y: class

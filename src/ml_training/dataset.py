@@ -1,0 +1,71 @@
+"""Stage 1 – get raw data into ``data/raw/<name>.csv`` (tracked by DVC, never edited by hand).
+
+uv run mlt-prepare                                   # default: breast_cancer
+uv run mlt-prepare data=iris
+uv run mlt-prepare data=csv data.name=churn data.path=data/external/churn.csv data.target=Churn
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import hydra
+import pandas as pd
+from omegaconf import DictConfig
+
+from ml_training.utils import CONFIG_DIR, ensure_dir, log
+
+
+def load_raw(cfg: DictConfig) -> pd.DataFrame:
+    d = cfg.data
+    if d.source == "sklearn":
+        import sklearn.datasets as skd
+
+        bunch = getattr(skd, d.loader)(as_frame=True)
+        df = bunch.frame.copy()
+        if d.target != "target" and "target" in df.columns:
+            df = df.rename(columns={"target": d.target})
+        return df
+
+    if d.source == "openml":
+        from sklearn.datasets import fetch_openml
+
+        bunch = fetch_openml(
+            name=d.loader, version=d.get("version", 1), as_frame=True, parser="auto"
+        )
+        df = bunch.frame.copy()
+        return df
+
+    if d.source == "csv":
+        path = Path(d.path)
+        if not path.is_absolute():
+            path = Path(cfg.paths.root) / path
+        suffix = path.suffix.lower()
+        if suffix in {".parquet", ".pq"}:
+            return pd.read_parquet(path)
+        if suffix in {".xlsx", ".xls"}:
+            return pd.read_excel(path)
+        return pd.read_csv(path, sep=None, engine="python", encoding_errors="replace")
+
+    raise ValueError(f"Unknown data.source: {d.source!r} (use sklearn | csv | openml)")
+
+
+def run(cfg: DictConfig) -> Path:
+    df = load_raw(cfg)
+    if cfg.data.target not in df.columns:
+        raise KeyError(
+            f"Target column {cfg.data.target!r} not found. Columns: {list(df.columns)[:20]}..."
+        )
+    out = ensure_dir(cfg.paths.raw) / f"{cfg.data.name}.csv"
+    df.to_csv(out, index=False)
+    log.info("Saved raw data %s  shape=%s", out, df.shape)
+    return out
+
+
+@hydra.main(version_base="1.3", config_path=CONFIG_DIR, config_name="config")
+def main(cfg: DictConfig) -> None:
+    run(cfg)
+
+
+if __name__ == "__main__":
+    main()
