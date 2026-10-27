@@ -72,7 +72,10 @@
 | `augment` | โมเดลจำข้อมูลเกิน (overfit) | จูนเฉพาะ augmentation |
 | `custom` | ปรับเองทุกอย่าง | แก้ `configs\tune\custom.yaml` ได้เลย มีทุกค่าที่ใช้บ่อยพร้อมคำอธิบาย |
 
-- ทำ preset ของตัวเองได้: คัดลอก `custom.yaml` เป็น `configs\tune\helmet.yaml` แล้วใช้ `.\run.ps1 fit helmet m helmet`
+- **ทำ preset ของตัวเองแบบง่าย**: เมนู *Tuning settings* (หรือ `.\run.ps1 tune`) → *Create my preset*
+  เลือก preset ตั้งต้น แล้วตอบแค่ค่าที่ใช้บ่อย (กด Enter = ใช้ค่าเดิม): epochs, ขนาดภาพ, batch, patience, freeze,
+  optimizer, device, จำนวนรอบ Optuna, epochs ต่อรอบ → ตั้งชื่อ เช่น `odb_gpu` → ขึ้นเป็นตัวเลือกตอนเทรนทันที
+- ปรับละเอียด: เมนูเดียวกัน → *Edit a preset in Notepad* ปิด Notepad แล้วระบบตรวจไฟล์ให้ว่าใช้ได้
 - ค่าที่พิมพ์ต่อท้ายชนะ preset เสมอ เช่น `.\run.ps1 fit helmet accurate hpo.n_trials=80 model.params.imgsz=960`
 - โหมด `quick` ยังใช้ค่าคงที่ของ preset (เช่น freeze) แต่ข้ามการจูนและเทรน 30 epochs
 - preset ที่ใช้ถูกบันทึกใน Excel (Summary) และ MLflow (param `tune`) เพื่อเทียบย้อนหลังได้

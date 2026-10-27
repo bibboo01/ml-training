@@ -13,6 +13,7 @@
     .\run.ps1 find helmet D:\cam\clip.mp4 m # ... or with a chosen size
     .\run.ps1 clean helmet                  # delete results of one dataset (asks first; add raw = data too)
     .\run.ps1 clean all                     # delete every result + MLflow/Optuna history
+    .\run.ps1 tune                          # make / view / edit tuning presets (common settings only)
   Setup / tools:
     .\run.ps1 setup-yolo   # install (CPU)          .\run.ps1 setup-gpu   # install (NVIDIA GPU)
     .\run.ps1 ui           # MLflow UI http://127.0.0.1:5000
@@ -33,7 +34,7 @@ $env:MLFLOW_DISABLE_AGENT_HINT = "1"
 if (Test-Path .gpu) { $env:UV_NO_SYNC = "1" }
 $CudaIndex = "https://download.pytorch.org/whl/cu126"
 $Sizes = @("yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x")
-$HelpLines = 23
+$HelpLines = 24
 
 function Need-Uv {
     if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
@@ -170,6 +171,42 @@ function Select-Dataset([switch]$Trained) {
     return $samples[$j]
 }
 
+# presets = configs\tune\*.yaml (built-in ones first, then yours)
+function Get-Presets {
+    $rows = @(uv run python -m ml_training.tune_menu names | Where-Object { $_ -match '\|' })
+    if ($rows.Count -eq 0) { $rows = @(Get-ChildItem configs\tune -Filter *.yaml | ForEach-Object { "$($_.BaseName)|" }) }
+    return $rows | ForEach-Object { $n, $about = $_ -split '\|', 2; [pscustomobject]@{ Name = $n; About = $about } }
+}
+
+function Select-Preset {
+    $p = @(Get-Presets)
+    $i = Read-Choice "Choose" @($p | ForEach-Object { "{0,-12}{1}" -f $_.Name, $_.About })
+    return $p[$i].Name
+}
+
+function Show-TuningMenu {
+    while ($true) {
+        Say "`n---------- Tuning settings ----------"
+        $k = Read-Choice "Choose" @(
+            "Show all presets (epochs, trials, freeze, how many settings are tuned)",
+            "Create my preset (asks only the common settings)",
+            "Edit a preset in Notepad (checked when you close it)",
+            "Back")
+        switch ($k) {
+            0 { uv run python -m ml_training.tune_menu list }
+            1 { uv run python -m ml_training.tune_menu create }
+            2 {
+                $name = Select-Preset
+                Start-Process notepad "configs\tune\$name.yaml" -Wait
+                uv run python -m ml_training.tune_menu check $name
+                if ($LASTEXITCODE -ne 0) { Say "The file has a problem (see above) - open it again and fix it." "Red" }
+                else { Say "Preset '$name' is OK." "Green" }
+            }
+            3 { return }
+        }
+    }
+}
+
 function Show-Menu {
     while ($true) {
         Say "`n========== ML Training =========="
@@ -177,6 +214,7 @@ function Show-Menu {
             "Train YOLO (detect / segment / classify / pose / obb)",
             "Predict images / video with a trained model",
             "Compare trained YOLO models",
+            "Tuning settings (view / create / edit presets)",
             "Open MLflow UI (all runs, metrics, model registry)",
             "Install / update (CPU or NVIDIA GPU)",
             "Clean data / results (asks before deleting)",
@@ -193,18 +231,9 @@ function Show-Menu {
                     $sizeOpts = @("n  (nano)", "s  (small)", "m  (medium)", "l  (large)", "x  (extra large)", "all sizes, one after another")
                     $size = $gen + @("n", "s", "m", "l", "x", "all")[(Read-Choice "Choose" $sizeOpts)]
                     Say "`nTraining mode:"
-                    $mode = @("quick", "full")[(Read-Choice "Choose" @("Quick test (no tuning, 30 epochs)", "Full (Optuna tuning + 100 epochs)"))]
+                    $mode = @("quick", "full")[(Read-Choice "Choose" @("Quick test (no tuning, 30 epochs)", "Full (Optuna tuning + epochs from the tuning preset)"))]
                     Say "`nTuning preset (what Optuna tries + fixed training settings):"
-                    $presets = @("default", "fast", "balanced", "accurate", "small_data", "freeze", "augment", "custom")
-                    $tune = $presets[(Read-Choice "Choose" @(
-                        "default     model config as it is",
-                        "fast        50 epochs, small search",
-                        "balanced    optimiser + loss + augmentation search",
-                        "accurate    300 epochs, widest search (GPU)",
-                        "small_data  frozen backbone + strong augmentation",
-                        "freeze      transfer learning, tune learning rate only",
-                        "augment     search augmentation only",
-                        "custom      your settings in configs\tune\custom.yaml"))]
+                    $tune = Select-Preset
                     $script:LastReport = $null
                     Invoke-Detect $ds $size $mode @("tune=$tune")
                     if ($script:LastReport -and (Test-Path $script:LastReport) -and ((Read-Host "Open the Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
@@ -215,12 +244,13 @@ function Show-Menu {
                     Invoke-Find $ds $src "" @()
                 }
                 2 { $ds = Select-Dataset -Trained; Show-Results $ds; $x = "reports\$ds\compare.xlsx"; if ((Test-Path $x) -and ((Read-Host "Open compare.xlsx? (y/n) [y]") -ne "n")) { Invoke-Item $x } }
-                3 { Start-Process "http://127.0.0.1:5000"; uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db" --port 5000 }
-                4 {
+                3 { Show-TuningMenu }
+                4 { Start-Process "http://127.0.0.1:5000"; uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db" --port 5000 }
+                5 {
                     $g = Read-Choice "Install for" @("CPU only", "NVIDIA GPU (CUDA)")
                     if ($g -eq 0) { & $PSCommandPath setup-yolo } else { & $PSCommandPath setup-gpu }
                 }
-                5 {
+                6 {
                     $names = @(@("data\processed", "models", "reports") | ForEach-Object { Get-ChildItem $_ -Directory -ErrorAction SilentlyContinue } | ForEach-Object Name | Where-Object { "pretrained", "runs", "figures" -notcontains $_ } | Sort-Object -Unique)
                     Say "`nClean what?"
                     $opts = $names + @("ALL datasets (every result + MLflow / Optuna history)")
@@ -229,9 +259,9 @@ function Show-Menu {
                     $raw = (Read-Host "Also delete the raw dataset in data\raw? (y/n) [n]") -eq "y"
                     if ($raw) { Invoke-Clean @($target, "raw") } else { Invoke-Clean @($target) }
                 }
-                6 { uv run dvc repro; uv run dvc metrics show }
-                7 { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
-                8 { return }
+                7 { uv run dvc repro; uv run dvc metrics show }
+                8 { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
+                9 { return }
             }
         } catch { Say "Error: $($_.Exception.Message)" "Red" }
     }
@@ -258,6 +288,7 @@ switch ($Task) {
     }
     "results" { Show-Results $Rest[0] }
     "clean" { Invoke-Clean @($Rest) }
+    "tune" { Show-TuningMenu }
     "find" {
         $a = @($Rest)
         $size = $null; $i = 2
