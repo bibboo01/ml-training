@@ -13,6 +13,7 @@ import hydra
 import pandas as pd
 from omegaconf import DictConfig
 
+from ml_training import lineage
 from ml_training.detection_data import is_yolo, prepare
 from ml_training.utils import CONFIG_DIR, ensure_dir, log
 
@@ -67,7 +68,8 @@ def run(cfg: DictConfig) -> Path:
 
 @hydra.main(version_base="1.3", config_path=CONFIG_DIR, config_name="config")
 def main(cfg: DictConfig) -> None:
-    run(cfg)
+    out = run(cfg)
+    lineage.record("prepare", lineage.history_path(cfg), dataset=cfg.data.name, output=str(out))
 
 
 if __name__ == "__main__":

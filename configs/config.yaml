@@ -27,6 +27,10 @@ mlflow:
   artifact_location: ${paths.root}/mlruns
   register_model: true
   registered_model_name: ${data.name}-${model.name}
+  system_metrics: true       # CPU / RAM / disk / GPU usage during training (MLflow "System metrics")
+  log_predictions: true      # every mlt-predict / "find" becomes an MLflow run (stage=predict)
+  log_weights: true          # also keep last.pt + the whole Ultralytics run folder as artifacts
+  history_file: ${paths.root}/logs/history.jsonl   # one line per command, never cleaned
 
 evaluation:
   # Average used for the headline precision/recall/F1 (binary | macro | weighted)

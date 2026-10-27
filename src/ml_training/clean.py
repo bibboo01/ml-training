@@ -7,7 +7,8 @@ uv run python -m ml_training.clean all --dry-run   # only list what would be del
 
 Per dataset: data/processed/<name>, models/<name>, reports/<name>, its MLflow experiment
 (runs, artifacts, registered models <name>-<model>) and Optuna studies <name>-<model>.
-Never touched: models/pretrained (downloaded weights), configs, code, and data/raw unless --raw.
+Never touched: models/pretrained (downloaded weights), configs, code, logs/history.jsonl
+(the permanent command log – the clean itself is recorded there) and data/raw unless --raw.
 """
 
 from __future__ import annotations
@@ -174,6 +175,16 @@ def main(argv: list[str] | None = None) -> int:
         except OSError as e:  # e.g. mlflow.db open in the MLflow UI
             failed.append(f"{p.relative_to(root)}: {e}")
     print(f"Deleted {len(files) + len(tracking) - len(failed)} item(s).")
+    from ml_training.lineage import record
+
+    record(
+        "clean",
+        root / "logs" / "history.jsonl",
+        target=target,
+        raw=args.raw,
+        deleted=[str(p.relative_to(root)) for p in files] + tracking,
+        failed=failed,
+    )
     if failed:
         print("Could not delete (close MLflow UI / Excel and run again):", *failed, sep="\n  ")
         return 1

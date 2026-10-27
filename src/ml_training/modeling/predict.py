@@ -18,7 +18,46 @@ import joblib
 import pandas as pd
 from omegaconf import DictConfig
 
+from ml_training import lineage
 from ml_training.utils import CONFIG_DIR, log, sqlite_uri
+
+
+def track_prediction(cfg: DictConfig, info: dict, out_csv: Path, df: pd.DataFrame) -> None:
+    """History of every prediction: an MLflow run (stage=predict) + a logs/history.jsonl line."""
+    counts = df["class"].value_counts().to_dict() if "class" in df else {}
+    if "prediction" in df:
+        counts = df["prediction"].value_counts().to_dict()
+    run_id = None
+    if cfg.mlflow.get("log_predictions", True):
+        import mlflow
+
+        from ml_training.tracking import setup_mlflow
+
+        exp = setup_mlflow(cfg)
+        with mlflow.start_run(
+            experiment_id=exp,
+            run_name=f"predict-{cfg.model.name}-{pd.Timestamp.now():%Y%m%d-%H%M%S}",
+        ) as run:
+            mlflow.set_tags({"stage": "predict", "dataset": cfg.data.name, "model": cfg.model.name})
+            mlflow.log_params({k: str(v)[:500] for k, v in info.items()})
+            mlflow.log_metric("n_predictions", len(df))
+            for c, n in counts.items():
+                safe = "".join(ch if ch.isalnum() else "_" for ch in str(c))
+                mlflow.log_metric(f"count_{safe}", int(n))
+            lineage.log_context()
+            mlflow.log_artifact(str(out_csv), artifact_path="predictions")
+            run_id = run.info.run_id
+    lineage.record(
+        "predict",
+        lineage.history_path(cfg),
+        dataset=cfg.data.name,
+        model=cfg.model.name,
+        **info,
+        n_predictions=len(df),
+        counts={str(k): int(v) for k, v in counts.items()},
+        output=str(out_csv),
+        mlflow_run_id=run_id,
+    )
 
 
 def predict_yolo(cfg: DictConfig) -> Path:
@@ -53,10 +92,17 @@ def predict_yolo(cfg: DictConfig) -> Path:
         rows += result_rows(r)
     out_path = Path(cfg.get("output") or out_dir / "detections.csv")
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    (pd.DataFrame(rows) if rows else pd.DataFrame(columns=["source", "class", "conf"])).to_csv(
-        out_path, index=False
-    )
+    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["source", "class", "conf"])
+    df.to_csv(out_path, index=False)
     log.info("%d predictions -> %s  (annotated files in %s)", len(rows), out_path, out_dir)
+    info = {
+        "input": source,
+        "conf": float(cfg.get("conf", 0.25)),
+        "weights": str(weights),
+        "weights_sha256": lineage.fingerprint([weights])["sha256"],
+        "annotated_dir": str(out_dir),
+    }
+    track_prediction(cfg, info, out_path, df)
     return out_path
 
 
@@ -93,6 +139,12 @@ def main(cfg: DictConfig) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(out_path, index=False)
     log.info("Wrote %d predictions -> %s", len(out), out_path)
+    track_prediction(
+        cfg,
+        {"input": str(inp), "model": model_uri or str(cfg.paths.run_model)},
+        out_path,
+        out,
+    )
 
 
 if __name__ == "__main__":

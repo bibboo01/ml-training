@@ -29,6 +29,7 @@ import optuna
 import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 
+from ml_training import lineage
 from ml_training.detection_data import configure_ultralytics
 from ml_training.hpo import param_importances, run_study, suggest_params, trials_dataframe
 from ml_training.metrics import EvalResult
@@ -314,7 +315,12 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
 
     experiment_id = setup_mlflow(cfg)
     run_name = f"{cfg.model.name}-{datetime.now():%Y%m%d-%H%M%S}"
-    with mlflow.start_run(experiment_id=experiment_id, run_name=run_name) as parent:
+    processed = Path(cfg.paths.processed)
+    with mlflow.start_run(
+        experiment_id=experiment_id,
+        run_name=run_name,
+        log_system_metrics=bool(cfg.mlflow.get("system_metrics", True)),
+    ) as parent:
         mlflow.set_tags(
             {
                 "dataset": cfg.data.name,
@@ -327,6 +333,11 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
         )
         mlflow.log_dict(OmegaConf.to_container(cfg, resolve=True), "config/config.yaml")
         mlflow.log_dict(meta, "config/data_meta.json")
+        # lineage: git, environment, data fingerprint + the exact split lists used
+        split_files = [processed / n for n in ("data.yaml", "train.txt", "val.txt", "test.txt")]
+        lineage_info = lineage.log_context(
+            lineage.yolo_data_files(processed, task), extra_artifacts=split_files
+        )
 
         # ---------- 1. Optuna search (short runs) ----------
         study, best_params, val_summary = None, {}, None
@@ -499,6 +510,7 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
             "epochs (final)": train_kw.get("epochs"),
             "mlflow_run_id": parent.info.run_id,
             "created": datetime.now().isoformat(timespec="seconds"),
+            **lineage_info,
         }
         report_path = None
         if cfg.report.excel:
@@ -529,6 +541,16 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
             mlflow.log_artifact(str(train_dir / "results.csv"), artifact_path="training")
         if (train_dir / "args.yaml").exists():
             mlflow.log_artifact(str(train_dir / "args.yaml"), artifact_path="training")
+        lineage.log_epochs(train_dir / "results.csv")  # mAP / loss / lr curves per epoch
+        if cfg.mlflow.get("log_weights", True):
+            # whole Ultralytics output: plots, label stats, val batches, last.pt
+            for run_dir in [train_dir, Path(m_map.save_dir), Path(m_cm.save_dir)]:
+                for f in sorted(run_dir.glob("*")):
+                    if f.is_file():
+                        mlflow.log_artifact(str(f), artifact_path=f"ultralytics/{run_dir.name}")
+            last_pt = train_dir / "weights" / "last.pt"
+            if last_pt.exists():
+                mlflow.log_artifact(str(last_pt), artifact_path="weights")
 
         # ---------- 5. Log + register the model ----------
         mlflow.pyfunc.log_model(
@@ -543,6 +565,22 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
         )
 
     s = result.summary
+    lineage.record(
+        "train",
+        history=lineage.history_path(cfg),
+        dataset=cfg.data.name,
+        model=cfg.model.name,
+        task=task,
+        tune=tune_name,
+        weights=Path(weights).name,
+        epochs=train_kw.get("epochs"),
+        hpo_trials=len(study.trials) if study else 0,
+        metrics={k: v for k, v in s.items() if isinstance(v, int | float)},
+        model_file=str(model_path),
+        report=str(report_path) if report_path else None,
+        mlflow_run_id=parent.info.run_id,
+        data_sha256=lineage_info.get("data sha256"),
+    )
     keys = ["top1", "top5"] if task == "classify" else ["map50", "map50_95", "precision", "recall"]
     keys += [k for k in ("TP", "FP", "FN", "TN") if k in s]
     log.info(

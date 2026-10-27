@@ -24,6 +24,7 @@ import pandas as pd
 from mlflow.models import infer_signature
 from omegaconf import DictConfig, OmegaConf
 
+from ml_training import lineage
 from ml_training.features import load_splits
 from ml_training.hpo import param_importances, run_study, suggest_params, trials_dataframe
 from ml_training.metrics import evaluate, predict_with_threshold
@@ -58,7 +59,12 @@ def train(cfg: DictConfig) -> dict[str, float]:
     run_name = f"{cfg.model.name}-{datetime.now():%Y%m%d-%H%M%S}"
     out_dir = ensure_dir(cfg.paths.run_reports)
 
-    with mlflow.start_run(experiment_id=experiment_id, run_name=run_name) as parent:
+    processed = Path(cfg.paths.processed)
+    with mlflow.start_run(
+        experiment_id=experiment_id,
+        run_name=run_name,
+        log_system_metrics=bool(cfg.mlflow.get("system_metrics", True)),
+    ) as parent:
         mlflow.set_tags(
             {
                 "dataset": cfg.data.name,
@@ -70,6 +76,14 @@ def train(cfg: DictConfig) -> dict[str, float]:
         )
         mlflow.log_dict(OmegaConf.to_container(cfg, resolve=True), "config/config.yaml")
         mlflow.log_dict(meta, "config/data_meta.json")
+        # lineage: git, environment, data fingerprint (raw file + exact splits)
+        raw_file = Path(cfg.paths.raw) / f"{cfg.data.name}.csv"
+        split_files = sorted(processed.glob("*.csv"))
+        lineage_info = lineage.log_context(
+            [raw_file, *split_files],
+            data_root=Path(cfg.paths.root),
+            extra_artifacts=[f for f in split_files if f.stat().st_size < 50 * 2**20],
+        )
 
         # ---------- 1. Hyperparameter search ----------
         study, best_params, val_summary = None, {}, None
@@ -172,6 +186,7 @@ def train(cfg: DictConfig) -> dict[str, float]:
                 "hpo_trials": len(study.trials) if study else 0,
                 "mlflow_run_id": parent.info.run_id,
                 "created": datetime.now().isoformat(timespec="seconds"),
+                **lineage_info,
             }
             cfg_flat = flatten_dict(OmegaConf.to_container(cfg, resolve=True))
             report_path = write_report(
@@ -212,6 +227,19 @@ def train(cfg: DictConfig) -> dict[str, float]:
         )
 
     s = result.summary
+    lineage.record(
+        "train",
+        history=lineage.history_path(cfg),
+        dataset=cfg.data.name,
+        model=cfg.model.name,
+        task="tabular",
+        hpo_trials=len(study.trials) if study else 0,
+        metrics={k: v for k, v in s.items() if isinstance(v, int | float)},
+        model_file=str(cfg.paths.run_model),
+        report=str(report_path) if report_path else None,
+        mlflow_run_id=parent.info.run_id,
+        data_sha256=lineage_info.get("data sha256"),
+    )
     log.info(
         "TEST  acc=%.4f  f1=%.4f  TP=%d FP=%d FN=%d TN=%d  -> run %s",
         s["accuracy"],

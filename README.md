@@ -54,6 +54,7 @@
 .\run.ps1 fit helmet s full accurate    # เลือกแบบการจูน (ดูตารางด้านล่าง)
 .\run.ps1 clean helmet                 # ลบผลเทรนของ helmet (ถามยืนยันก่อน · เติม raw = ลบรูปด้วย)
 .\run.ps1 clean all                    # ลบผลทั้งหมด + ประวัติ MLflow / Optuna
+.\run.ps1 history                      # ประวัติทุกคำสั่งที่เคยรัน (+ logs\history.xlsx)
 .\run.ps1 help                         # ดูคำสั่งทั้งหมด
 ```
 
@@ -79,6 +80,27 @@
 - ค่าที่พิมพ์ต่อท้ายชนะ preset เสมอ เช่น `.\run.ps1 fit helmet accurate hpo.n_trials=80 model.params.imgsz=960`
 - โหมด `quick` ยังใช้ค่าคงที่ของ preset (เช่น freeze) แต่ข้ามการจูนและเทรน 30 epochs
 - preset ที่ใช้ถูกบันทึกใน Excel (Summary) และ MLflow (param `tune`) เพื่อเทียบย้อนหลังได้
+
+### ระบบเก็บประวัติอะไรบ้าง
+
+ทุกการเทรน (ทั้ง YOLO และข้อมูลตาราง) เป็น 1 run ใน MLflow (`.\run.ps1 ui`) ที่เก็บ:
+
+| หมวด | สิ่งที่เก็บ | ดูที่ไหนใน MLflow |
+|---|---|---|
+| ตั้งค่า | config Hydra ทั้งหมด, preset, hyperparameter ทุกตัว, ค่าที่ดีที่สุดจาก Optuna | Parameters, `config/` |
+| ผลลัพธ์ | metrics ของ test, TP/FP/FN(/TN) ต่อ class, ทุก Optuna trial (nested run) | Metrics, `reports/` |
+| ระหว่างเทรน | mAP / loss / learning rate **ทุก epoch** เป็นกราฟ | Metrics `epoch/...` → Chart |
+| เครื่อง | CPU / RAM / ดิสก์ / GPU ระหว่างเทรน (ทุก ~10 วินาที) | System metrics |
+| ข้อมูล | ลายนิ้วมือ sha256 ของรูป+label ที่ใช้จริง, รายชื่อไฟล์ train/val/test | tag `data.sha256`, `lineage/` |
+| โค้ด | git commit, ไฟล์ที่แก้ยังไม่ commit (diff), คำสั่งที่รัน | tags `git.*`, `command`, `lineage/` |
+| สภาพแวดล้อม | Python, เวอร์ชันไลบรารี (torch, ultralytics ...), ชื่อเครื่อง, GPU, `uv.lock` | `lineage/environment.json` |
+| ไฟล์ | รายงาน Excel, กราฟ, โฟลเดอร์ผล Ultralytics ทั้งหมด, `best.pt` (ใน Model Registry) + `last.pt` | `reports/`, `ultralytics/`, `weights/` |
+| การใช้งาน | ทุกครั้งที่ predict / find: input, weights (+ hash), จำนวนผลต่อ class, CSV | run ที่ tag `stage=predict` |
+
+นอกจากนี้ทุกคำสั่ง (prepare / featurize / train / predict / clean) ถูกจดเป็น 1 บรรทัดใน `logs\history.jsonl`
+ดูด้วย `.\run.ps1 history` (หรือเมนู *History*) ได้ตาราง + `logs\history.xlsx` · คำสั่ง `clean` ไม่ลบไฟล์นี้
+และการลบเองก็ถูกจดไว้ด้วย · ปิดบางอย่างได้ใน `configs/config.yaml` หมวด `mlflow:`
+(`system_metrics`, `log_weights`, `log_predictions`)
 
 ต่อท้ายด้วยค่า Hydra ได้เสมอ เช่น `.\run.ps1 fit helmet n full model.params.epochs=200 model.params.batch=-1`
 ถ้าระบบเดางานผิด บังคับได้ด้วย `data.task=segment` (หรือ detect / pose / obb / classify) · คำสั่งเดิม `detect` ยังใช้ได้

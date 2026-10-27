@@ -40,3 +40,6 @@ desktop.ini
 # Local GPU marker created by run.ps1 setup-gpu
 .gpu
 /reports/**/predict/
+
+# History viewer export (logs/history.jsonl itself is worth committing)
+/logs/*.xlsx

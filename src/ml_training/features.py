@@ -14,6 +14,7 @@ import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 from sklearn.model_selection import train_test_split
 
+from ml_training import lineage
 from ml_training.detection_data import featurize, is_yolo
 from ml_training.utils import CONFIG_DIR, ensure_dir, log, read_json, write_json
 
@@ -95,7 +96,17 @@ def load_splits(processed_dir: str | Path):
 
 @hydra.main(version_base="1.3", config_path=CONFIG_DIR, config_name="config")
 def main(cfg: DictConfig) -> None:
-    run(cfg)
+    out = run(cfg)
+    meta = read_json(out / "meta.json") if (out / "meta.json").exists() else {}
+    lineage.record(
+        "featurize",
+        lineage.history_path(cfg),
+        dataset=cfg.data.name,
+        task=meta.get("task", "tabular"),
+        rows=meta.get("n_rows"),
+        classes=meta.get("n_classes"),
+        output=str(out),
+    )
 
 
 if __name__ == "__main__":

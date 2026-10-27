@@ -14,6 +14,7 @@
     .\run.ps1 clean helmet                  # delete results of one dataset (asks first; add raw = data too)
     .\run.ps1 clean all                     # delete every result + MLflow/Optuna history
     .\run.ps1 tune                          # make / view / edit tuning presets (common settings only)
+    .\run.ps1 history                       # every prepare / train / predict / clean (+ logs\history.xlsx)
   Setup / tools:
     .\run.ps1 setup-yolo   # install (CPU)          .\run.ps1 setup-gpu   # install (NVIDIA GPU)
     .\run.ps1 ui           # MLflow UI http://127.0.0.1:5000
@@ -34,7 +35,7 @@ $env:MLFLOW_DISABLE_AGENT_HINT = "1"
 if (Test-Path .gpu) { $env:UV_NO_SYNC = "1" }
 $CudaIndex = "https://download.pytorch.org/whl/cu126"
 $Sizes = @("yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x")
-$HelpLines = 24
+$HelpLines = 25
 
 function Need-Uv {
     if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
@@ -218,6 +219,7 @@ function Show-Menu {
             "Open MLflow UI (all runs, metrics, model registry)",
             "Install / update (CPU or NVIDIA GPU)",
             "Clean data / results (asks before deleting)",
+            "History (every prepare / train / predict / clean)",
             "Tabular data: run the full pipeline",
             "Help (all commands)",
             "Exit")
@@ -259,9 +261,13 @@ function Show-Menu {
                     $raw = (Read-Host "Also delete the raw dataset in data\raw? (y/n) [n]") -eq "y"
                     if ($raw) { Invoke-Clean @($target, "raw") } else { Invoke-Clean @($target) }
                 }
-                7 { uv run dvc repro; uv run dvc metrics show }
-                8 { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
-                9 { return }
+                7 {
+                    uv run python -m ml_training.lineage 30 --excel
+                    if ((Test-Path logs\history.xlsx) -and ((Read-Host "Open history.xlsx? (y/n) [n]") -eq "y")) { Invoke-Item logs\history.xlsx }
+                }
+                8 { uv run dvc repro; uv run dvc metrics show }
+                9 { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
+                10 { return }
             }
         } catch { Say "Error: $($_.Exception.Message)" "Red" }
     }
@@ -289,6 +295,7 @@ switch ($Task) {
     "results" { Show-Results $Rest[0] }
     "clean" { Invoke-Clean @($Rest) }
     "tune" { Show-TuningMenu }
+    "history" { $n = 30; if ($Rest) { $n = $Rest[0] }; uv run python -m ml_training.lineage $n --excel }
     "find" {
         $a = @($Rest)
         $size = $null; $i = 2
