@@ -6,10 +6,13 @@
     .\run.ps1 fit helmet m quick            # yolo11m, quick test (no tuning, 30 epochs)
     .\run.ps1 fit helmet all quick          # every size n,s,m,l,x  (26m / all26 = YOLO26)
     .\run.ps1 fit D:\datasets\leaves s      # dataset outside the project (copied to data\raw)
+    .\run.ps1 fit helmet s full accurate    # tuning preset: fast balanced accurate small_data freeze augment custom
     .\run.ps1 fit helmet n full data.task=segment model.params.epochs=200   # extra overrides
     .\run.ps1 results helmet                # compare all trained sizes (+ reports\helmet\compare.xlsx)
     .\run.ps1 find helmet D:\images         # predict with the best trained model
     .\run.ps1 find helmet D:\cam\clip.mp4 m # ... or with a chosen size
+    .\run.ps1 clean helmet                  # delete results of one dataset (asks first; add raw = data too)
+    .\run.ps1 clean all                     # delete every result + MLflow/Optuna history
   Setup / tools:
     .\run.ps1 setup-yolo   # install (CPU)          .\run.ps1 setup-gpu   # install (NVIDIA GPU)
     .\run.ps1 ui           # MLflow UI http://127.0.0.1:5000
@@ -30,7 +33,7 @@ $env:MLFLOW_DISABLE_AGENT_HINT = "1"
 if (Test-Path .gpu) { $env:UV_NO_SYNC = "1" }
 $CudaIndex = "https://download.pytorch.org/whl/cu126"
 $Sizes = @("yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x")
-$HelpLines = 20
+$HelpLines = 23
 
 function Need-Uv {
     if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
@@ -133,6 +136,13 @@ function Invoke-Find([string]$Ds, [string]$InputPath, [string]$Size, [string[]]$
     }
 }
 
+function Invoke-Clean([string[]]$A) {
+    if (-not $A -or -not $A[0]) { throw "Usage: .\run.ps1 clean <dataset|all> [raw]" }
+    $flags = @()
+    if ($A -contains "raw") { $flags += "--raw" }
+    uv run python -m ml_training.clean $A[0] @flags
+}
+
 # ----------------------------------------------------------------------------- menu
 function Read-Choice([string]$Prompt, [string[]]$Options, [int]$Default = 1) {
     for ($i = 0; $i -lt $Options.Count; $i++) { Write-Host ("  {0}) {1}" -f ($i + 1), $Options[$i]) }
@@ -169,6 +179,7 @@ function Show-Menu {
             "Compare trained YOLO models",
             "Open MLflow UI (all runs, metrics, model registry)",
             "Install / update (CPU or NVIDIA GPU)",
+            "Clean data / results (asks before deleting)",
             "Tabular data: run the full pipeline",
             "Help (all commands)",
             "Exit")
@@ -183,8 +194,19 @@ function Show-Menu {
                     $size = $gen + @("n", "s", "m", "l", "x", "all")[(Read-Choice "Choose" $sizeOpts)]
                     Say "`nTraining mode:"
                     $mode = @("quick", "full")[(Read-Choice "Choose" @("Quick test (no tuning, 30 epochs)", "Full (Optuna tuning + 100 epochs)"))]
+                    Say "`nTuning preset (what Optuna tries + fixed training settings):"
+                    $presets = @("default", "fast", "balanced", "accurate", "small_data", "freeze", "augment", "custom")
+                    $tune = $presets[(Read-Choice "Choose" @(
+                        "default     model config as it is",
+                        "fast        50 epochs, small search",
+                        "balanced    optimiser + loss + augmentation search",
+                        "accurate    300 epochs, widest search (GPU)",
+                        "small_data  frozen backbone + strong augmentation",
+                        "freeze      transfer learning, tune learning rate only",
+                        "augment     search augmentation only",
+                        "custom      your settings in configs\tune\custom.yaml"))]
                     $script:LastReport = $null
-                    Invoke-Detect $ds $size $mode @()
+                    Invoke-Detect $ds $size $mode @("tune=$tune")
                     if ($script:LastReport -and (Test-Path $script:LastReport) -and ((Read-Host "Open the Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
                 }
                 1 {
@@ -198,9 +220,18 @@ function Show-Menu {
                     $g = Read-Choice "Install for" @("CPU only", "NVIDIA GPU (CUDA)")
                     if ($g -eq 0) { & $PSCommandPath setup-yolo } else { & $PSCommandPath setup-gpu }
                 }
-                5 { uv run dvc repro; uv run dvc metrics show }
-                6 { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
-                7 { return }
+                5 {
+                    $names = @(@("data\processed", "models", "reports") | ForEach-Object { Get-ChildItem $_ -Directory -ErrorAction SilentlyContinue } | ForEach-Object Name | Where-Object { "pretrained", "runs", "figures" -notcontains $_ } | Sort-Object -Unique)
+                    Say "`nClean what?"
+                    $opts = $names + @("ALL datasets (every result + MLflow / Optuna history)")
+                    $k = Read-Choice "Choose" $opts
+                    $target = "all"; if ($k -lt $names.Count) { $target = $names[$k] }
+                    $raw = (Read-Host "Also delete the raw dataset in data\raw? (y/n) [n]") -eq "y"
+                    if ($raw) { Invoke-Clean @($target, "raw") } else { Invoke-Clean @($target) }
+                }
+                6 { uv run dvc repro; uv run dvc metrics show }
+                7 { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
+                8 { return }
             }
         } catch { Say "Error: $($_.Exception.Message)" "Red" }
     }
@@ -211,15 +242,22 @@ switch ($Task) {
     "menu" { Show-Menu }
     "help" { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
     { $_ -in "fit", "detect" } {
+        # words after the dataset may come in any order: size, quick|full, tuning preset, key=value
         $a = @($Rest)
-        $ds = $a[0]; $size = $null; $mode = $null; $i = 1
-        if ($a.Count -gt $i -and $a[$i] -notmatch '=') { $size = $a[$i]; $i++ }
-        if ($a.Count -gt $i -and $a[$i] -notmatch '=') { $mode = $a[$i]; $i++ }
-        $extra = @(); if ($a.Count -gt $i) { $extra = $a[$i..($a.Count - 1)] }
+        $ds = $a[0]; $size = $null; $mode = $null; $extra = @()
+        for ($i = 1; $i -lt $a.Count; $i++) {
+            $t = $a[$i]
+            if ($t -match '=') { $extra += $t }
+            elseif ("quick", "full" -contains $t) { $mode = $t }
+            elseif (Test-Path "configs\tune\$t.yaml") { $extra += "tune=$t" }
+            elseif (-not $size) { $size = $t }
+            else { throw "Unknown argument '$t'" }
+        }
         Invoke-Detect $ds $size $mode $extra
         break
     }
     "results" { Show-Results $Rest[0] }
+    "clean" { Invoke-Clean @($Rest) }
     "find" {
         $a = @($Rest)
         $size = $null; $i = 2

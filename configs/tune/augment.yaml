@@ -1,0 +1,20 @@
+# @package _global_
+# Search augmentation only – optimiser settings stay as in the model config.
+tune:
+  name: augment
+  search_space:
+    hsv_h: {type: float, low: 0.0, high: 0.05}
+    hsv_s: {type: float, low: 0.3, high: 0.9}
+    hsv_v: {type: float, low: 0.2, high: 0.7}
+    degrees: {type: float, low: 0.0, high: 20.0}
+    translate: {type: float, low: 0.0, high: 0.3}
+    scale: {type: float, low: 0.2, high: 0.9}
+    shear: {type: float, low: 0.0, high: 5.0}
+    perspective: {type: float, low: 0.0, high: 0.001}
+    flipud: {type: float, low: 0.0, high: 0.5}
+    fliplr: {type: float, low: 0.0, high: 0.5}
+    mosaic: {type: float, low: 0.5, high: 1.0}
+    mixup: {type: float, low: 0.0, high: 0.3}
+    copy_paste: {type: float, low: 0.0, high: 0.3}
+hpo:
+  n_trials: 25

@@ -1,0 +1,14 @@
+# @package _global_
+# Tuning preset (YOLO). default = use the model config as it is (configs/model/yolo11*.yaml).
+# Pick another one with  tune=<name>  (or in the run.bat menu):
+#   fast        quick results: 50 epochs, small search (lr / momentum / weight decay)
+#   balanced    the standard search over optimiser + loss gains + augmentation
+#   accurate    long training (300 epochs) + the widest search, incl. optimizer choice
+#   small_data  few hundred images: frozen backbone, strong augmentation, more patience
+#   freeze      transfer learning: freeze the backbone, tune only learning rates (fast)
+#   augment     search augmentation only (keep optimiser settings)
+#   custom      YOUR file: every common setting listed – edit custom.yaml freely
+# Anything here can still be overridden on the command line, e.g. tune=accurate hpo.n_trials=60
+tune:
+  name: default
+  search_space: null       # null = the model's search_space; a mapping replaces it

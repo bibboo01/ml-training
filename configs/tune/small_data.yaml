@@ -1,0 +1,25 @@
+# @package _global_
+# Small dataset (tens to a few hundred images): keep the pretrained backbone frozen,
+# augment hard, train longer with more patience so it does not stop too early.
+tune:
+  name: small_data
+  search_space:
+    lr0: {type: float, low: 1.0e-4, high: 1.0e-2, log: true}
+    weight_decay: {type: float, low: 1.0e-4, high: 2.0e-3, log: true}
+    degrees: {type: float, low: 0.0, high: 20.0}
+    translate: {type: float, low: 0.0, high: 0.3}
+    scale: {type: float, low: 0.3, high: 0.9}
+    fliplr: {type: float, low: 0.0, high: 0.5}
+    hsv_v: {type: float, low: 0.2, high: 0.7}
+    mosaic: {type: float, low: 0.7, high: 1.0}
+    mixup: {type: float, low: 0.0, high: 0.3}
+model:
+  hpo_epochs: 15
+  params:
+    epochs: 200
+    patience: 60
+    freeze: 10           # freeze the first 10 layers (backbone of yolo11 / yolo26)
+    degrees: 10.0
+    mixup: 0.1
+hpo:
+  n_trials: 20

@@ -1,0 +1,35 @@
+# @package _global_
+# Best accuracy, slow: long training, cosine LR and the widest search (incl. optimizer type).
+# Use on a GPU machine.
+tune:
+  name: accurate
+  search_space:
+    optimizer: {type: categorical, choices: [SGD, AdamW]}
+    lr0: {type: float, low: 1.0e-4, high: 2.0e-2, log: true}
+    lrf: {type: float, low: 0.01, high: 0.5}
+    momentum: {type: float, low: 0.8, high: 0.98}
+    weight_decay: {type: float, low: 0.0, high: 1.0e-3}
+    warmup_epochs: {type: float, low: 0.0, high: 5.0}
+    box: {type: float, low: 4.0, high: 10.0}
+    cls: {type: float, low: 0.3, high: 2.0}
+    dfl: {type: float, low: 0.8, high: 2.5}
+    hsv_h: {type: float, low: 0.0, high: 0.05}
+    hsv_s: {type: float, low: 0.3, high: 0.9}
+    hsv_v: {type: float, low: 0.2, high: 0.7}
+    degrees: {type: float, low: 0.0, high: 15.0}
+    translate: {type: float, low: 0.0, high: 0.3}
+    scale: {type: float, low: 0.2, high: 0.9}
+    shear: {type: float, low: 0.0, high: 5.0}
+    fliplr: {type: float, low: 0.0, high: 0.5}
+    mosaic: {type: float, low: 0.5, high: 1.0}
+    mixup: {type: float, low: 0.0, high: 0.3}
+    copy_paste: {type: float, low: 0.0, high: 0.3}   # used by segmentation only
+    close_mosaic: {type: int, low: 0, high: 20}
+model:
+  hpo_epochs: 20
+  params:
+    epochs: 300
+    patience: 50
+    cos_lr: true
+hpo:
+  n_trials: 50

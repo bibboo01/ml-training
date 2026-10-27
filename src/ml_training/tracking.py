@@ -15,6 +15,8 @@ def setup_mlflow(cfg: DictConfig) -> str:
         return mlflow.create_experiment(
             cfg.experiment_name, artifact_location=file_uri(cfg.mlflow.artifact_location)
         )
+    if exp.lifecycle_stage == "deleted":  # deleted in the UI: bring it back instead of failing
+        mlflow.MlflowClient().restore_experiment(exp.experiment_id)
     return exp.experiment_id
 
 

@@ -51,8 +51,31 @@
 .\run.ps1 fit coco8-seg n quick        # ลองงาน segment ด้วยชุดตัวอย่าง (ดาวน์โหลดให้เอง)
 .\run.ps1 results helmet               # เทียบผลทุกขนาด
 .\run.ps1 find helmet D:\images        # ทำนายด้วยโมเดลที่ดีที่สุด (หรือ ... D:\clip.mp4 m)
+.\run.ps1 fit helmet s full accurate    # เลือกแบบการจูน (ดูตารางด้านล่าง)
+.\run.ps1 clean helmet                 # ลบผลเทรนของ helmet (ถามยืนยันก่อน · เติม raw = ลบรูปด้วย)
+.\run.ps1 clean all                    # ลบผลทั้งหมด + ประวัติ MLflow / Optuna
 .\run.ps1 help                         # ดูคำสั่งทั้งหมด
 ```
+
+### เลือกแบบการจูน (tuning preset)
+
+เลือกได้ในเมนู หรือพิมพ์ชื่อต่อท้ายคำสั่ง `fit` (ลำดับคำไม่สำคัญ) ไฟล์อยู่ใน `configs\tune\`
+
+| preset | เหมาะกับ | สิ่งที่ทำ |
+|---|---|---|
+| `default` | ทั่วไป | ใช้ค่าในไฟล์โมเดล (`configs\model\yolo11*.yaml`) |
+| `fast` | อยากเห็นผลเร็ว | 50 epochs, Optuna 10 รอบ จูนแค่ lr / momentum / weight decay |
+| `balanced` | ใช้งานจริงทั่วไป | จูน optimizer + loss gain + augmentation หลัก, 30 รอบ |
+| `accurate` | ต้องการแม่นสุด (เครื่อง GPU) | 300 epochs, cosine LR, จูนกว้างสุดรวมชนิด optimizer (SGD/AdamW), 50 รอบ |
+| `small_data` | รูปไม่กี่ร้อยรูป | freeze backbone 10 ชั้น, augmentation แรง, patience 60 |
+| `freeze` | วัตถุคล้าย COCO, อยากเร็ว | freeze backbone แล้วจูนแค่ learning rate |
+| `augment` | โมเดลจำข้อมูลเกิน (overfit) | จูนเฉพาะ augmentation |
+| `custom` | ปรับเองทุกอย่าง | แก้ `configs\tune\custom.yaml` ได้เลย มีทุกค่าที่ใช้บ่อยพร้อมคำอธิบาย |
+
+- ทำ preset ของตัวเองได้: คัดลอก `custom.yaml` เป็น `configs\tune\helmet.yaml` แล้วใช้ `.\run.ps1 fit helmet m helmet`
+- ค่าที่พิมพ์ต่อท้ายชนะ preset เสมอ เช่น `.\run.ps1 fit helmet accurate hpo.n_trials=80 model.params.imgsz=960`
+- โหมด `quick` ยังใช้ค่าคงที่ของ preset (เช่น freeze) แต่ข้ามการจูนและเทรน 30 epochs
+- preset ที่ใช้ถูกบันทึกใน Excel (Summary) และ MLflow (param `tune`) เพื่อเทียบย้อนหลังได้
 
 ต่อท้ายด้วยค่า Hydra ได้เสมอ เช่น `.\run.ps1 fit helmet n full model.params.epochs=200 model.params.batch=-1`
 ถ้าระบบเดางานผิด บังคับได้ด้วย `data.task=segment` (หรือ detect / pose / obb / classify) · คำสั่งเดิม `detect` ยังใช้ได้

@@ -297,6 +297,9 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
     class_names = meta["class_names"]
     task = meta.get("task", "detect")
     weights = resolve_weights(cfg, task)
+    tune = cfg.get("tune") or {}
+    tune_name = str(tune.get("name") or "default")
+    space = tune.get("search_space") or cfg.model.get("search_space")  # preset replaces model's
     hpo = cfg.hpo
     metric = cfg.model.get("hpo_metric") or hpo.metric
     if task == "classify" and metric not in CLASSIFY_METRICS:
@@ -327,10 +330,10 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
 
         # ---------- 1. Optuna search (short runs) ----------
         study, best_params, val_summary = None, {}, None
-        if hpo.enabled and hpo.n_trials > 0 and cfg.model.get("search_space"):
+        if hpo.enabled and hpo.n_trials > 0 and space:
 
             def objective(trial: optuna.Trial) -> float:
-                params = suggest_params(trial, cfg.model.search_space)
+                params = suggest_params(trial, space)
                 with mlflow.start_run(
                     experiment_id=experiment_id, run_name=f"trial-{trial.number}", nested=True
                 ):
@@ -360,9 +363,7 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
                 metric,
             )
             study = run_study(OmegaConf.merge(hpo, {"direction": "maximize"}), cfg.seed, objective)
-            best_params = suggest_params(
-                optuna.trial.FixedTrial(study.best_params), cfg.model.search_space
-            )
+            best_params = suggest_params(optuna.trial.FixedTrial(study.best_params), space)
             val_summary = study.best_trial.user_attrs.get("val_summary")
             mlflow.log_metric(f"best_val_{metric}", study.best_value)
             log.info("Best val %s = %.4f  params=%s", metric, study.best_value, best_params)
@@ -387,6 +388,7 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
             {
                 "weights": Path(weights).name,
                 "hpo.metric": metric,
+                "tune": tune_name,
                 "hpo.n_trials": hpo.n_trials if hpo.enabled else 0,
             }
         )
@@ -491,6 +493,7 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
                 if task == "classify"
                 else f"conf >= {conf_thr}, box IoU >= 0.45 (Ultralytics matching)"
             ),
+            "tuning preset": tune_name,
             "hpo_metric": metric,
             "hpo_trials": len(study.trials) if study else 0,
             "epochs (final)": train_kw.get("epochs"),

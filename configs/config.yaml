@@ -5,6 +5,7 @@ defaults:
   - data: breast_cancer
   - model: random_forest
   - hpo: optuna
+  - tune: default        # YOLO tuning preset: fast | balanced | accurate | small_data | freeze | augment | custom
   - _self_
 
 seed: 42

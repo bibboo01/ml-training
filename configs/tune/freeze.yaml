@@ -1,0 +1,16 @@
+# @package _global_
+# Transfer learning: freeze the backbone and tune only the learning-rate settings.
+# Fast and stable when your objects look like everyday COCO objects.
+tune:
+  name: freeze
+  search_space:
+    lr0: {type: float, low: 1.0e-4, high: 1.0e-2, log: true}
+    lrf: {type: float, low: 0.01, high: 0.5}
+    warmup_epochs: {type: float, low: 0.0, high: 3.0}
+model:
+  hpo_epochs: 10
+  params:
+    epochs: 80
+    freeze: 10
+hpo:
+  n_trials: 15

@@ -1,0 +1,60 @@
+# @package _global_
+# YOUR tuning file – edit freely, then train with  tune=custom  (menu: "custom").
+# Tip: copy it to e.g. tune/helmet.yaml for a per-project preset (tune=helmet).
+# Full list of training settings: https://docs.ultralytics.com/modes/train/#train-settings
+tune:
+  name: custom
+  # ---------------- Optuna search (what to try) ----------------
+  # Each entry: float / int {low, high, log?, step?}  or  categorical {choices: [...]}.
+  # Delete lines you do not want to tune; add any training setting from the list below.
+  search_space:
+    lr0: {type: float, low: 1.0e-4, high: 2.0e-2, log: true}   # start learning rate
+    lrf: {type: float, low: 0.01, high: 0.5}                    # final LR = lr0 * lrf
+    momentum: {type: float, low: 0.8, high: 0.98}
+    weight_decay: {type: float, low: 0.0, high: 1.0e-3}
+    # optimizer: {type: categorical, choices: [SGD, AdamW, Adam]}
+    # batch: {type: categorical, choices: [8, 16, 32]}
+    # imgsz: {type: categorical, choices: [512, 640, 800]}
+    # freeze: {type: int, low: 0, high: 10}
+    # box: {type: float, low: 4.0, high: 10.0}
+    # cls: {type: float, low: 0.3, high: 2.0}
+    # mosaic: {type: float, low: 0.5, high: 1.0}
+    # mixup: {type: float, low: 0.0, high: 0.3}
+model:
+  hpo_epochs: 10           # epochs of each Optuna trial (short)
+  # ---------------- fixed training settings (final model) ----------------
+  params:
+    epochs: 100
+    patience: 30           # stop when val mAP does not improve for N epochs
+    imgsz: 640             # bigger = finds small objects better, slower (classify uses 224)
+    batch: 16              # -1 = biggest batch that fits your GPU
+    optimizer: auto        # auto | SGD | Adam | AdamW | NAdam | RAdam | RMSProp
+    lr0: 0.01              # used when optimizer is not auto
+    lrf: 0.01
+    cos_lr: false          # cosine learning-rate schedule
+    warmup_epochs: 3.0
+    freeze: null           # null = train all layers; 10 = freeze the backbone
+    dropout: 0.0           # classify only
+    close_mosaic: 10       # turn mosaic off for the last N epochs
+    # --- augmentation ---
+    hsv_h: 0.015
+    hsv_s: 0.7
+    hsv_v: 0.4
+    degrees: 0.0
+    translate: 0.1
+    scale: 0.5
+    shear: 0.0
+    perspective: 0.0
+    flipud: 0.0
+    fliplr: 0.5
+    mosaic: 1.0
+    mixup: 0.0
+    copy_paste: 0.0        # segmentation only
+    # --- speed ---
+    cache: false           # true / ram / disk = faster epochs on small datasets
+    amp: true              # mixed precision on GPU
+  evaluation:
+    conf: 0.25             # confidence threshold used for TP / FP / FN
+hpo:
+  n_trials: 30
+  timeout: null            # seconds; stop the search after this time
