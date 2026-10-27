@@ -1,0 +1,11 @@
+# Example pose / keypoints: COCO8-pose (8 images, 17 keypoints) – auto-downloaded by Ultralytics
+# into data/raw/coco8-pose. Checks the YOLO pose pipeline end-to-end in about a minute:
+#   .\run.ps1 detect coco8-pose n quick
+name: coco8-pose
+task: pose
+source: ultralytics      # ultralytics (built-in, auto-download) | yolo (your own folder)
+loader: coco8-pose.yaml
+path: null
+class_names: null
+val_size: 0.2            # only used when the dataset has no val split
+test_size: 0.0

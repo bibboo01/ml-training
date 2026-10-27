@@ -1,0 +1,11 @@
+# Example oriented boxes: DOTA8 (8 aerial images, rotated boxes) – auto-downloaded by Ultralytics
+# into data/raw/dota8. Checks the YOLO obb pipeline end-to-end in about a minute:
+#   .\run.ps1 detect dota8 n quick
+name: dota8
+task: obb
+source: ultralytics      # ultralytics (built-in, auto-download) | yolo (your own folder)
+loader: dota8.yaml
+path: null
+class_names: null
+val_size: 0.2            # only used when the dataset has no val split
+test_size: 0.0

@@ -1,0 +1,11 @@
+# Example instance segmentation: COCO8-seg (8 images, polygons) – auto-downloaded by Ultralytics
+# into data/raw/coco8-seg. Checks the YOLO segment pipeline end-to-end in about a minute:
+#   .\run.ps1 detect coco8-seg n quick
+name: coco8-seg
+task: segment
+source: ultralytics      # ultralytics (built-in, auto-download) | yolo (your own folder)
+loader: coco8-seg.yaml
+path: null
+class_names: null
+val_size: 0.2            # only used when the dataset has no val split
+test_size: 0.0

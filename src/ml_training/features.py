@@ -14,7 +14,7 @@ import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 from sklearn.model_selection import train_test_split
 
-from ml_training.detection_data import featurize, is_detection
+from ml_training.detection_data import featurize, is_yolo
 from ml_training.utils import CONFIG_DIR, ensure_dir, log, read_json, write_json
 
 TARGET_COL = "__target__"
@@ -29,7 +29,7 @@ def infer_feature_types(X: pd.DataFrame) -> dict[str, list[str]]:
 
 
 def run(cfg: DictConfig) -> Path:
-    if is_detection(cfg):  # image object detection (YOLO format)
+    if is_yolo(cfg):  # image data for YOLO (detect, segment, classify, pose, obb)
         return featurize(cfg)
     d = cfg.data
     raw_path = Path(cfg.paths.raw) / f"{d.name}.csv"

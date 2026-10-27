@@ -19,6 +19,10 @@ BOUNDED_METRICS = [
     "map50",
     "map50_95",
     "map75",
+    "box_map50",
+    "box_map50_95",
+    "top1",
+    "top5",
     "accuracy",
     "balanced_accuracy",
     "precision",
@@ -187,7 +191,7 @@ def _confusion_sheet(wb, f, result: EvalResult):
     row = r1 + 3
     s = result.summary
     if "TN" not in s:
-        label = "all classes (object detection: TN is not defined)"
+        label = "all classes (detection/segment/pose/obb: TN is not defined)"
     elif n == 2:
         label = "positive class"
     else:

@@ -1,14 +1,22 @@
-"""YOLO object detection backend (Ultralytics) – same workflow as the tabular models:
-Optuna search -> final training -> evaluation (mAP + TP/FP/FN per class) -> MLflow -> Excel.
+"""Ultralytics YOLO backend for every image task – detect, segment, classify, pose, obb.
+Same workflow as the tabular models:
+Optuna search -> final training -> evaluation (mAP / top-1 + TP/FP/FN per class) -> MLflow -> Excel.
+
+The task comes from the dataset (data/processed/<name>/meta.json); stock weights are switched
+automatically, e.g. model=yolo11n on a segmentation dataset trains yolo11n-seg.pt.
 
     uv run mlt-train data=coco8 model=yolo11n
+    uv run mlt-train data=coco8-seg model=yolo11s        # segmentation
+    uv run mlt-train data=mnist160 model=yolo11n         # classification
     uv run mlt-train data=helmet model=yolo11s hpo.n_trials=20 model.hpo_epochs=15
     uv run mlt-train data=helmet model=yolo11n hpo=none model.params.epochs=200
 """
 
 from __future__ import annotations
 
+import json
 import platform
+import re
 import shutil
 import time
 from datetime import datetime
@@ -68,28 +76,105 @@ def detection_counts(matrix: np.ndarray, class_names: list[str]) -> pd.DataFrame
     return df
 
 
-def box_summary(metrics) -> dict[str, float]:
-    b = metrics.box
-    return {
-        "map50": float(b.map50),
-        "map50_95": float(b.map),
-        "map75": float(b.map75),
-        "precision": float(b.mp),
-        "recall": float(b.mr),
-        "f1": _f1(float(b.mp), float(b.mr)),
-        "fitness": float(metrics.fitness),
+TASK_SUFFIX = {"detect": "", "segment": "-seg", "classify": "-cls", "pose": "-pose", "obb": "-obb"}
+TASK_LABEL = {
+    "detect": "object detection (YOLO)",
+    "segment": "instance segmentation (YOLO)",
+    "classify": "image classification (YOLO)",
+    "pose": "pose / keypoints (YOLO)",
+    "obb": "oriented bounding boxes (YOLO)",
+}
+# which Ultralytics metric family is the main one per task: B = box, M = mask, P = pose
+MAIN_FAMILY = {"detect": "B", "obb": "B", "segment": "M", "pose": "P"}
+FAMILY = {"B": ("box", "box"), "M": ("mask", "seg"), "P": ("pose", "pose")}  # prefix, attribute
+CLASSIFY_METRICS = ("top1", "top5", "accuracy", "fitness")
+
+
+def summarize(metrics, task: str = "detect") -> dict[str, float]:
+    """Flat summary of an Ultralytics metrics object; map50/map50_95/precision/recall are the
+    task's main family (mask for segment, keypoints for pose) and box_* are added alongside."""
+    if task == "classify":
+        top1, top5 = float(metrics.top1), float(metrics.top5)
+        return {"top1": top1, "top5": top5, "accuracy": top1, "fitness": float(metrics.fitness)}
+    main = getattr(metrics, FAMILY[MAIN_FAMILY[task]][1])
+    p, r = float(main.mp), float(main.mr)
+    out = {
+        "map50": float(main.map50),
+        "map50_95": float(main.map),
+        "map75": float(main.map75),
+        "precision": p,
+        "recall": r,
+        "f1": _f1(p, r),
     }
+    if MAIN_FAMILY[task] != "B":
+        out.update({"box_map50": float(metrics.box.map50), "box_map50_95": float(metrics.box.map)})
+    out["fitness"] = float(metrics.fitness)
+    return out
 
 
-def build_eval(metrics_map, metrics_cm, class_names: list[str]) -> EvalResult:
+box_summary = summarize  # backwards-compatible name
+
+
+def classify_counts(matrix: np.ndarray, class_names: list[str]) -> pd.DataFrame:
+    """One-vs-rest TP/FP/FN/TN per class from a classification confusion matrix [pred, true]."""
+    m = np.asarray(matrix)[: len(class_names), : len(class_names)]
+    total = int(m.sum())
+    rows = []
+    for i, name in enumerate(class_names):
+        tp = int(m[i, i])
+        fp = int(m[i, :].sum() - tp)
+        fn = int(m[:, i].sum() - tp)
+        p = tp / (tp + fp) if tp + fp else 0.0
+        r = tp / (tp + fn) if tp + fn else 0.0
+        rows.append(
+            {
+                "class": name,
+                "TP": tp,
+                "FP": fp,
+                "FN": fn,
+                "TN": total - tp - fp - fn,
+                "support": tp + fn,
+                "precision": p,
+                "recall": r,
+                "f1": _f1(p, r),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def build_classify_eval(metrics, class_names: list[str]) -> EvalResult:
+    summary = summarize(metrics, "classify")
+    m = metrics.confusion_matrix.matrix
+    pc = classify_counts(m, class_names)
+    summary.update(
+        {
+            "precision": float(pc.precision.mean()),
+            "recall": float(pc.recall.mean()),
+            "f1": float(pc.f1.mean()),
+        }
+    )
+    summary.update({k: int(pc[k].sum()) for k in ("TP", "FP", "FN", "TN")})
+    n = len(class_names)
+    confusion = pd.DataFrame(
+        np.asarray(m)[:n, :n].T.astype(int),  # rows = true, cols = predicted
+        index=[f"true: {c}" for c in class_names],
+        columns=[f"pred: {c}" for c in class_names],
+    )
+    return EvalResult(summary=summary, per_class=pc, confusion=confusion)
+
+
+def build_eval(metrics_map, metrics_cm, class_names: list[str], task: str = "detect") -> EvalResult:
     """Combine mAP metrics (low conf) with confusion-matrix counts (conf threshold)."""
-    summary = box_summary(metrics_map)
+    if task == "classify":
+        return build_classify_eval(metrics_map, class_names)
+    summary = summarize(metrics_map, task)
     pc = detection_counts(metrics_cm.confusion_matrix.matrix, class_names)
+    main = getattr(metrics_map, FAMILY[MAIN_FAMILY[task]][1])
     ap50 = dict.fromkeys(range(len(class_names)), np.nan)
     ap = dict.fromkeys(range(len(class_names)), np.nan)
     for j, c in enumerate(metrics_map.ap_class_index):
-        ap50[int(c)] = float(metrics_map.box.ap50[j])
-        ap[int(c)] = float(metrics_map.box.ap[j])
+        ap50[int(c)] = float(main.ap50[j])
+        ap[int(c)] = float(main.ap[j])
     pc["AP50"] = [ap50[i] for i in range(len(class_names))]
     pc["AP50_95"] = [ap[i] for i in range(len(class_names))]
     # Large label sets (e.g. COCO) – keep classes that appear in GT or predictions.
@@ -108,9 +193,51 @@ def build_eval(metrics_map, metrics_cm, class_names: list[str]) -> EvalResult:
     return EvalResult(summary=summary, per_class=pc, confusion=confusion)
 
 
+def result_rows(r) -> list[dict[str, Any]]:
+    """One row per prediction of an Ultralytics ``Results`` object, for any task."""
+    if r.probs is not None:  # classify: top-1 (+ top-5 as text)
+        top5 = ", ".join(
+            f"{r.names[int(i)]}:{c:.3f}"
+            for i, c in zip(r.probs.top5, r.probs.top5conf.tolist(), strict=True)
+        )
+        return [
+            {
+                "source": r.path,
+                "class": r.names[int(r.probs.top1)],
+                "conf": float(r.probs.top1conf),
+                "top5": top5,
+            }
+        ]
+    rows: list[dict[str, Any]] = []
+    if r.obb is not None:  # rotated boxes: centre, size, angle (radians)
+        for (cx, cy, w, h, a), c, s in zip(
+            r.obb.xywhr.tolist(), r.obb.cls.tolist(), r.obb.conf.tolist(), strict=True
+        ):
+            rows.append(
+                {"source": r.path, "class": r.names[int(c)], "conf": s}
+                | {"cx": cx, "cy": cy, "w": w, "h": h, "angle": a}
+            )
+        return rows
+    if r.boxes is None:
+        return rows
+    polys = r.masks.xy if r.masks is not None else None
+    kpts = r.keypoints.data.tolist() if r.keypoints is not None else None
+    for k, (box, c, s) in enumerate(
+        zip(r.boxes.xyxy.tolist(), r.boxes.cls.tolist(), r.boxes.conf.tolist(), strict=True)
+    ):
+        row = {"source": r.path, "class": r.names[int(c)], "conf": s}
+        row |= {"x1": box[0], "y1": box[1], "x2": box[2], "y2": box[3]}
+        if polys is not None:
+            row["polygon"] = json.dumps(np.round(polys[k], 1).tolist())
+        if kpts is not None:
+            row["keypoints"] = json.dumps([[round(v, 2) for v in p] for p in kpts[k]])
+        rows.append(row)
+    return rows
+
+
 # --------------------------------------------------------------------------- mlflow model
 class YoloPyfunc(mlflow.pyfunc.PythonModel):
-    """MLflow wrapper: input = DataFrame with a ``path`` column (image files) -> detections."""
+    """MLflow wrapper: input = DataFrame with a ``path`` column (image files) -> predictions."""
 
     def load_context(self, context):
         from ultralytics import YOLO
@@ -122,26 +249,21 @@ class YoloPyfunc(mlflow.pyfunc.PythonModel):
         rows = []
         for path in model_input["path"]:
             for r in self.model.predict(str(path), conf=conf, verbose=False):
-                for box, c, s in zip(
-                    r.boxes.xyxy.tolist(), r.boxes.cls.tolist(), r.boxes.conf.tolist(), strict=True
-                ):
-                    rows.append(
-                        {
-                            "path": str(path),
-                            "class": r.names[int(c)],
-                            "conf": s,
-                            "x1": box[0],
-                            "y1": box[1],
-                            "x2": box[2],
-                            "y2": box[3],
-                        }
-                    )
+                rows += result_rows(r)
         return pd.DataFrame(rows)
 
 
 # --------------------------------------------------------------------------- training
-def resolve_weights(cfg: DictConfig) -> str:
-    w = Path(str(cfg.model.weights))
+def task_weights(name: str, task: str) -> str:
+    """Stock detection weights -> the task's variant: yolo11n.pt + segment -> yolo11n-seg.pt."""
+    p = Path(name)
+    if TASK_SUFFIX.get(task) and re.fullmatch(r"yolo(v?\d+)[nsmlx]", p.stem):
+        return str(p.with_name(p.stem + TASK_SUFFIX[task] + p.suffix))
+    return name
+
+
+def resolve_weights(cfg: DictConfig, task: str = "detect") -> str:
+    w = Path(task_weights(str(cfg.model.weights), task))
     if w.is_absolute() and w.exists():
         return str(w)
     for cand in (Path(cfg.paths.root) / w, Path(cfg.paths.models) / "pretrained" / w.name):
@@ -154,8 +276,13 @@ def resolve_weights(cfg: DictConfig) -> str:
     return str(attempt_download_asset(target))
 
 
-def _train_kwargs(cfg: DictConfig, overrides: dict[str, Any]) -> dict[str, Any]:
+def _train_kwargs(
+    cfg: DictConfig, overrides: dict[str, Any], task: str = "detect"
+) -> dict[str, Any]:
     kw = OmegaConf.to_container(cfg.model.params, resolve=True) or {}
+    per_task = cfg.model.get("task_params") or {}
+    if per_task.get(task):  # e.g. classify -> imgsz 224
+        kw.update(OmegaConf.to_container(per_task[task], resolve=True))
     kw.update(overrides)
     return {k: v for k, v in kw.items() if v is not None}
 
@@ -168,9 +295,14 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
     meta = read_json(Path(cfg.paths.processed) / "meta.json")
     data_yaml = meta["data_yaml"]
     class_names = meta["class_names"]
-    weights = resolve_weights(cfg)
+    task = meta.get("task", "detect")
+    weights = resolve_weights(cfg, task)
     hpo = cfg.hpo
     metric = cfg.model.get("hpo_metric") or hpo.metric
+    if task == "classify" and metric not in CLASSIFY_METRICS:
+        metric = "top1"
+    elif task != "classify" and metric in ("top1", "top5", "accuracy"):
+        metric = "map50_95"
     ev = cfg.model.get("evaluation") or {}
     conf_thr = float(ev.get("conf", 0.25))
     runs_dir = ensure_dir(Path(cfg.paths.models) / cfg.data.name / cfg.model.name)
@@ -184,7 +316,7 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
             {
                 "dataset": cfg.data.name,
                 "model": cfg.model.name,
-                "task": "detect",
+                "task": task,
                 "backend": "ultralytics",
                 "stage": "train",
                 "host_os": platform.system(),
@@ -213,9 +345,9 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
                         exist_ok=True,
                         plots=False,
                         verbose=False,
-                        **_train_kwargs(cfg, {**params, "epochs": cfg.model.hpo_epochs}),
+                        **_train_kwargs(cfg, {**params, "epochs": cfg.model.hpo_epochs}, task),
                     )
-                    res = box_summary(model.trainer.validator.metrics)
+                    res = summarize(model.trainer.validator.metrics, task)
                     res["fit_seconds"] = time.perf_counter() - t0
                     mlflow.log_metrics({f"val_{k}": v for k, v in res.items()})
                     trial.set_user_attr("val_summary", res)
@@ -238,7 +370,7 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
         # ---------- 2. Final training ----------
         model = YOLO(weights)
         t0 = time.perf_counter()
-        train_kw = _train_kwargs(cfg, best_params)
+        train_kw = _train_kwargs(cfg, best_params, task)
         model.train(
             data=data_yaml,
             project=str(runs_dir),
@@ -272,14 +404,17 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
             if train_kw.get(k) is not None:
                 common[k] = train_kw[k]
         m_map = best.val(name=f"eval_{eval_split}", plots=True, **common)
-        m_cm = best.val(
-            # plots=True is required: Ultralytics only fills the confusion matrix when plotting
-            name=f"eval_{eval_split}_conf{conf_thr}",
-            plots=True,
-            conf=conf_thr,
-            **common,
-        )
-        result = build_eval(m_map, m_cm, class_names)
+        if task == "classify":  # no confidence threshold: top-1 vs true class
+            m_cm = m_map
+        else:
+            m_cm = best.val(
+                # plots=True is required: Ultralytics only fills the confusion matrix when plotting
+                name=f"eval_{eval_split}_conf{conf_thr}",
+                plots=True,
+                conf=conf_thr,
+                **common,
+            )
+        result = build_eval(m_map, m_cm, class_names, task)
         result.summary["fit_seconds"] = fit_seconds
         mlflow.log_metrics({f"test_{k}": v for k, v in result.summary.items()})
         for row in result.per_class.itertuples():
@@ -288,6 +423,7 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
                 {
                     f"test_{safe}_{k}": getattr(row, k)
                     for k in ("TP", "FP", "FN", "precision", "recall", "f1")
+                    if hasattr(row, k)
                 }
             )
 
@@ -323,18 +459,19 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
         trials_df = trials_dataframe(study) if study else None
         importances = param_importances(study) if study and len(study.trials) > 1 else {}
         counts = meta["counts"]
+        unit = "images" if task == "classify" else "objects"
         dataset_df = pd.DataFrame(
             [
                 {
                     "class": n,
-                    **{f"{s}_boxes": counts[s]["instances"].get(str(i), 0) for s in counts},
+                    **{f"{s}_{unit}": counts[s]["instances"].get(str(i), 0) for s in counts},
                 }
                 for i, n in enumerate(class_names)
             ]
         )
         dataset_df = dataset_df[dataset_df.iloc[:, 1:].sum(axis=1) > 0].reset_index(drop=True)
         run_info = {
-            "task": "object detection (YOLO)",
+            "task": TASK_LABEL.get(task, task),
             "dataset": cfg.data.name,
             "model": cfg.model.name,
             "weights": Path(weights).name,
@@ -343,7 +480,17 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
                 str(meta["n_rows"].get(s, 0)) for s in ("train", "val", "test")
             ),
             "evaluated on": eval_split,
-            "TP/FP/FN rule": f"conf >= {conf_thr}, IoU >= 0.45 (Ultralytics matching)",
+            "main metric": {
+                "segment": "map50 / map50_95 = mask mAP (box mAP in box_map50*)",
+                "pose": "map50 / map50_95 = keypoint mAP (box mAP in box_map50*)",
+                "obb": "map50 / map50_95 = rotated-box mAP",
+                "classify": "top1 / top5 accuracy",
+            }.get(task, "map50 / map50_95 = box mAP"),
+            "TP/FP/FN rule": (
+                "top-1 class vs true class, one-vs-rest per class"
+                if task == "classify"
+                else f"conf >= {conf_thr}, box IoU >= 0.45 (Ultralytics matching)"
+            ),
             "hpo_metric": metric,
             "hpo_trials": len(study.trials) if study else 0,
             "epochs (final)": train_kw.get("epochs"),
@@ -386,23 +533,20 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
             python_model=YoloPyfunc(),
             artifacts={"weights": str(model_path)},
             pip_requirements=["ultralytics", "pandas"],
-            metadata={"class_names": class_names, "dataset": cfg.data.name, "task": "detect"},
+            metadata={"class_names": class_names, "dataset": cfg.data.name, "task": task},
             registered_model_name=(
                 cfg.mlflow.registered_model_name if cfg.mlflow.register_model else None
             ),
         )
 
     s = result.summary
+    keys = ["top1", "top5"] if task == "classify" else ["map50", "map50_95", "precision", "recall"]
+    keys += [k for k in ("TP", "FP", "FN", "TN") if k in s]
     log.info(
-        "TEST(%s)  mAP50=%.4f  mAP50-95=%.4f  P=%.4f R=%.4f  TP=%d FP=%d FN=%d  -> run %s",
+        "TEST(%s) %s  %s  -> run %s",
         eval_split,
-        s["map50"],
-        s["map50_95"],
-        s["precision"],
-        s["recall"],
-        s["TP"],
-        s["FP"],
-        s["FN"],
+        task,
+        "  ".join(f"{k}={s[k]:.4f}" if isinstance(s[k], float) else f"{k}={s[k]}" for k in keys),
         parent.info.run_id,
     )
     return s

@@ -15,10 +15,10 @@ import pandas as pd
 
 from ml_training.utils import PROJECT_ROOT
 
-# first metric found is the ranking key (detection, then classification)
-RANK_KEYS = ["map50_95", "f1", "accuracy"]
+# first metric found is the ranking key (detect/segment/pose/obb, YOLO classify, tabular)
+RANK_KEYS = ["map50_95", "top1", "f1", "accuracy"]
 COLUMNS = [
-    "map50", "map50_95", "precision", "recall", "f1", "accuracy",
+    "map50", "map50_95", "box_map50_95", "top1", "top5", "precision", "recall", "f1", "accuracy",
     "TP", "FP", "FN", "TN", "fit_seconds",
 ]  # fmt: skip
 
@@ -40,7 +40,8 @@ def collect(dataset: str, reports: Path) -> pd.DataFrame:
 
 
 def write_excel(df: pd.DataFrame, path: Path, dataset: str) -> None:
-    bounded = [c for c in ["map50", "map50_95", "precision", "recall", "f1", "accuracy"] if c in df]
+    keys = ["map50", "map50_95", "top1", "top5", "precision", "recall", "f1", "accuracy"]
+    bounded = [c for c in keys if c in df]
     out = df.drop(columns="has_pt")
     with pd.ExcelWriter(path, engine="xlsxwriter") as xw:
         out.to_excel(xw, sheet_name="Compare", index=False)

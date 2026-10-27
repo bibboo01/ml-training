@@ -13,7 +13,7 @@ import hydra
 import pandas as pd
 from omegaconf import DictConfig
 
-from ml_training.detection_data import is_detection, prepare
+from ml_training.detection_data import is_yolo, prepare
 from ml_training.utils import CONFIG_DIR, ensure_dir, log
 
 
@@ -52,7 +52,7 @@ def load_raw(cfg: DictConfig) -> pd.DataFrame:
 
 
 def run(cfg: DictConfig) -> Path:
-    if is_detection(cfg):  # image object detection (YOLO format)
+    if is_yolo(cfg):  # image data for YOLO (detect, segment, classify, pose, obb)
         return prepare(cfg)
     df = load_raw(cfg)
     if cfg.data.target not in df.columns:

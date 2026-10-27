@@ -15,34 +15,47 @@
 
 ---
 
-## เริ่มใช้งานแบบง่ายที่สุด (YOLO)
+## เริ่มใช้งานแบบง่ายที่สุด (YOLO ทุกงาน)
+
+รองรับทุกงานของ YOLO และ**ระบบดูจากไฟล์เองว่าเป็นงานอะไร** ไม่ต้องตั้งค่า:
+
+| งาน | ใช้ทำอะไร | dataset หน้าตาแบบไหน | ลองด้วยตัวอย่าง |
+|---|---|---|---|
+| detect | ตีกรอบวัตถุ | `labels/*.txt` แถวละ 5 ค่า | `coco8` |
+| segment | ระบายขอบวัตถุ (polygon) | `labels/*.txt` แถวเป็นจุด polygon | `coco8-seg` |
+| pose | จุด keypoint (คน, มือ, สัตว์) | `data.yaml` มี `kpt_shape` | `coco8-pose` |
+| obb | กรอบหมุนได้ (ภาพมุมสูง, เอกสาร) | `labels/*.txt` แถวละ 9 ค่า | `dota8` |
+| classify | จำแนกทั้งรูป | โฟลเดอร์ละ class: `train/<class>/*.jpg` หรือ `<class>/*.jpg` | `mnist160` |
 
 1. วางโฟลเดอร์ dataset (export แบบ YOLO จาก Roboflow / CVAT / Label Studio) ไว้ที่ `data\raw\<ชื่อ>\` เช่น `data\raw\helmet\`
 2. **ดับเบิลคลิก `run.bat`** แล้วเลือกจากเมนู (ไม่ต้องแก้ ExecutionPolicy):
 
 ```
 ========== ML Training ==========
-  1) Train YOLO (object detection)          <- เลือก dataset > ขนาด n/s/m/l/x/all > quick/full
-  2) Detect objects in images / video       <- ลาก/วางโฟลเดอร์รูปหรือวิดีโอได้เลย
-  3) Compare trained YOLO models            <- ตารางเทียบทุกขนาด + compare.xlsx
+  1) Train YOLO (detect / segment / classify / pose / obb)  <- dataset > YOLO11/26 > ขนาด > quick/full
+  2) Predict images / video with a trained model            <- ลาก/วางโฟลเดอร์รูปหรือวิดีโอได้เลย
+  3) Compare trained YOLO models                            <- ตารางเทียบทุกขนาด + compare.xlsx
   4) Open MLflow UI
-  5) Install / update (CPU or NVIDIA GPU)   <- ทำข้อนี้ก่อนครั้งแรก
+  5) Install / update (CPU or NVIDIA GPU)                   <- ทำข้อนี้ก่อนครั้งแรก
   ...
 ```
 
 หรือพิมพ์คำสั่งสั้นใน PowerShell (ระบบเตรียม/แบ่งข้อมูลให้เองก่อนเทรน):
 
 ```powershell
-.\run.ps1 detect helmet                # yolo11n แบบเต็ม (Optuna + 100 epochs)
-.\run.ps1 detect helmet m quick        # yolo11m แบบลองเร็ว (ไม่จูน, 30 epochs)
-.\run.ps1 detect helmet all quick      # ครบทุกขนาด n,s,m,l,x
-.\run.ps1 detect D:\datasets\helmet s  # dataset อยู่นอกโปรเจกต์ (คัดลอกเข้า data\raw ให้)
+.\run.ps1 fit helmet                   # yolo11n แบบเต็ม (Optuna + 100 epochs)
+.\run.ps1 fit helmet m quick           # yolo11m แบบลองเร็ว (ไม่จูน, 30 epochs)
+.\run.ps1 fit helmet all quick         # ครบทุกขนาด n,s,m,l,x
+.\run.ps1 fit helmet 26s               # YOLO26 ขนาด s   (all26 = YOLO26 ครบทุกขนาด)
+.\run.ps1 fit D:\datasets\leaves s     # dataset อยู่นอกโปรเจกต์ (คัดลอกเข้า data\raw ให้)
+.\run.ps1 fit coco8-seg n quick        # ลองงาน segment ด้วยชุดตัวอย่าง (ดาวน์โหลดให้เอง)
 .\run.ps1 results helmet               # เทียบผลทุกขนาด
-.\run.ps1 find helmet D:\images        # ตีกรอบด้วยโมเดลที่ดีที่สุด (หรือ ... D:\clip.mp4 m)
+.\run.ps1 find helmet D:\images        # ทำนายด้วยโมเดลที่ดีที่สุด (หรือ ... D:\clip.mp4 m)
 .\run.ps1 help                         # ดูคำสั่งทั้งหมด
 ```
 
-ต่อท้ายด้วยค่า Hydra ได้เสมอ เช่น `.\run.ps1 detect helmet n full model.params.epochs=200 model.params.batch=-1`
+ต่อท้ายด้วยค่า Hydra ได้เสมอ เช่น `.\run.ps1 fit helmet n full model.params.epochs=200 model.params.batch=-1`
+ถ้าระบบเดางานผิด บังคับได้ด้วย `data.task=segment` (หรือ detect / pose / obb / classify) · คำสั่งเดิม `detect` ยังใช้ได้
 รายละเอียดเชิงลึกอยู่ในหัวข้อ 5
 
 ---
@@ -144,9 +157,11 @@ search_space:
 
 แล้วรัน `uv run mlt-train model=xgboost` (ประเภทใน search space: `int`, `float`, `categorical`; ใส่ `log: true` / `step` ได้)
 
-## 5. YOLO object detection (รูปภาพ)
+## 5. YOLO งานรูปภาพ (detect / segment / classify / pose / obb)
 
-ใช้ระบบเดียวกัน (Hydra + Optuna + MLflow + DVC + Excel) กับงานตีกรอบวัตถุด้วย Ultralytics YOLO
+ใช้ระบบเดียวกัน (Hydra + Optuna + MLflow + DVC + Excel) กับงานรูปภาพทุกแบบของ Ultralytics YOLO
+งานถูกอ่านจาก dataset (`data.task: auto`) แล้วระบบสลับ weights ให้เอง เช่น `model=yolo11n` กับ dataset segment
+จะเทรน `yolo11n-seg.pt`, กับ dataset classify จะเทรน `yolo11n-cls.pt` (ขนาดภาพ 224) · มีทั้ง `yolo11n..x` และ `yolo26n..x`
 
 ### 5.1 ติดตั้ง (ครั้งเดียว)
 
@@ -170,6 +185,11 @@ data/raw/helmet/
 
 หรือแบบง่ายสุด `images/` + `labels/` + `classes.txt` ระบบจะแบ่ง train/val/test ให้เอง (val 20%, test 10%)
 
+- **segment / obb**: โครงสร้างเหมือนกันทุกอย่าง ต่างแค่เนื้อในไฟล์ label (polygon / 4 มุม)
+- **pose**: ต้องมี `data.yaml` ที่มี `kpt_shape` (และ `flip_idx` ถ้ามี) – Roboflow export ให้อยู่แล้ว
+- **classify**: ไม่มี labels ใช้โฟลเดอร์แทน `train/<class>/*.jpg` + `valid/<class>/...` หรือแค่ `<class>/*.jpg`
+  (ระบบแบ่ง val/test ให้แบบรักษาสัดส่วนทุก class และใช้ hard link จึงไม่กินพื้นที่เพิ่ม)
+
 ### 5.3 เทรน
 
 ```powershell
@@ -181,23 +201,25 @@ uv run mlt-train     data=yolo data.name=helmet model=yolo11n
 - Optuna จะลอง hyperparameter (lr0, momentum, augmentation, loss gain ฯลฯ) แบบสั้น `model.hpo_epochs` (10 epochs)
   จำนวน `hpo.n_trials` ครั้ง แล้วเทรนตัวจริงด้วยค่าที่ดีที่สุด `model.params.epochs` (100 epochs)
 - ปรับได้ เช่น `hpo.n_trials=20 model.hpo_epochs=15 model.params.epochs=200 model.params.imgsz=960 model.params.batch=-1`
-- ข้ามการจูน: `hpo=none`  · เลือกขนาด: `model=yolo11n|yolo11s|yolo11m|yolo11l|yolo11x` (n เร็วสุด, x แม่นสุด) · เทรนครบทุกขนาด: `.\run.ps1 detect helmet all` · ใช้ weights ของคุณ: `model.weights=models/pretrained/my.pt`
-- ลองระบบก่อนด้วยตัวอย่าง 8 รูป: `uv run mlt-prepare data=coco8` แล้ว `uv run mlt-train data=coco8 model=yolo11n`
+- ข้ามการจูน: `hpo=none`  · เลือกขนาด: `model=yolo11n|yolo11s|yolo11m|yolo11l|yolo11x` (n เร็วสุด, x แม่นสุด) · เทรนครบทุกขนาด: `.\run.ps1 fit helmet all` · ใช้ weights ของคุณ: `model.weights=models/pretrained/my.pt`
+- ลองระบบก่อนด้วยตัวอย่าง: `coco8` (detect), `coco8-seg`, `coco8-pose`, `dota8` (obb), `mnist160` (classify)
+  เช่น `.\run.ps1 fit dota8 n quick`
 - หรือผ่าน DVC: แก้ `vars` ใน `pipelines/yolo/dvc.yaml` แล้ว `.\run.ps1 yolo`
   (เก็บเวอร์ชันรูปด้วย `uv run dvc add data/raw/helmet`)
 
 ผลลัพธ์: `reports/<dataset>/<model>/report.xlsx`, `models/<dataset>/<model>.pt` (best weights),
 โมเดลถูก register ใน MLflow ชื่อ `<dataset>-<model>`, ไฟล์ดิบของ Ultralytics อยู่ที่ `models/<dataset>/<model>/final/`
 
-### 5.4 Metrics ของงาน detection
+### 5.4 Metrics
 
 | ค่า | ความหมาย |
 |---|---|
-| mAP50 / mAP50-95 | ค่ามาตรฐานของ detection (คำนวณบน test ถ้ามี ไม่งั้นใช้ val) |
+| mAP50 / mAP50-95 | ค่ามาตรฐาน (บน test ถ้ามี ไม่งั้นใช้ val) – segment = mAP ของ mask, pose = mAP ของ keypoint, obb = กรอบหมุน (mAP ของกรอบปกติอยู่ใน `box_map50*`) |
+| top1 / top5 | classify: สัดส่วนรูปที่ทายถูกอันดับ 1 / อยู่ใน 5 อันดับแรก |
 | TP | กรอบที่ทายถูก class และซ้อนกับกรอบจริง IoU ≥ 0.45 ที่ confidence ≥ 0.25 |
 | FP | กรอบที่ทายผิด class หรือทายในที่ที่ไม่มีวัตถุ (background) |
 | FN | วัตถุจริงที่หาไม่เจอหรือทายเป็น class อื่น |
-| TN | **ไม่มีในงาน detection** (พื้นหลังมีได้ไม่จำกัด จึงนับไม่ได้) |
+| TN | **ไม่มีใน detect/segment/pose/obb** (พื้นหลังมีได้ไม่จำกัด จึงนับไม่ได้) · **classify มี TN** (นับแบบ one-vs-rest ต่อ class) |
 
 เปลี่ยนเกณฑ์ confidence ได้ด้วย `model.evaluation.conf=0.4` รายงาน Excel มีชีตเพิ่ม: **Dataset** (จำนวนกรอบต่อ class/split),
 **TrainingHistory** (mAP และ loss ทุก epoch), **Plots** (confusion matrix, PR/F1 curve, results.png)
@@ -209,7 +231,9 @@ uv run mlt-predict data=yolo data.name=helmet model=yolo11n +input=D:/images    
 uv run mlt-predict data=yolo data.name=helmet model=yolo11n +input=D:/cam/clip.mp4 +conf=0.4
 ```
 
-ได้รูป/วิดีโอที่วาดกรอบแล้ว + `detections.csv` (ไฟล์, class, conf, x1, y1, x2, y2) ใน `reports/<dataset>/<model>/predict/`
+ได้รูป/วิดีโอที่วาดผลแล้ว + `detections.csv` ใน `reports/<dataset>/<model>/predict/` หนึ่งแถวต่อหนึ่งผลทำนาย:
+detect = class, conf, x1, y1, x2, y2 · segment = + `polygon` · pose = + `keypoints` (x, y, conf) ·
+obb = cx, cy, w, h, angle · classify = class, conf, `top5`
 
 ## 6. ใช้โมเดลทำนาย (ข้อมูลตาราง)
 

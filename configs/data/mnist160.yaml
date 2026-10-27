@@ -1,0 +1,11 @@
+# Example image classification: MNIST160 (160 digit images, 10 classes) – auto-downloaded by Ultralytics
+# into data/raw/mnist160. Checks the YOLO classify pipeline end-to-end in about a minute:
+#   .\run.ps1 detect mnist160 n quick
+name: mnist160
+task: classify
+source: ultralytics      # ultralytics (built-in, auto-download) | yolo (your own folder)
+loader: mnist160
+path: null
+class_names: null
+val_size: 0.2            # only used when the dataset has no val split
+test_size: 0.0

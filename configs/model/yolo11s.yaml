@@ -1,10 +1,11 @@
-# Ultralytics YOLO object detection. Requires: uv sync --extra yolo   (GPU: .\run.ps1 setup-gpu)
+# Ultralytics YOLO for every task: detect, segment, classify, pose, obb (task comes from the dataset).
+# Requires: uv sync --extra yolo   (GPU: .\run.ps1 setup-gpu)
 # Sizes: yolo11n (fastest) < s < m < l < x (most accurate). Also yolov8n.pt etc., or your own .pt in models/pretrained/
 name: yolo11s
 backend: ultralytics
 class_path: ultralytics.YOLO
-weights: yolo11s.pt      # downloaded automatically to models/pretrained/
-hpo_metric: map50_95     # Optuna objective for detection: map50_95 | map50 | f1 | precision | recall
+weights: yolo11s.pt      # auto-switched per task (yolo11n-seg.pt, -cls, -pose, -obb), downloaded to models/pretrained/
+hpo_metric: map50_95     # Optuna objective: map50_95 | map50 | f1 | precision | recall (classify uses top1)
 hpo_epochs: 10           # epochs per Optuna trial (short runs); the final model uses params.epochs
 params:                  # passed straight to model.train(...) – see docs.ultralytics.com/modes/train
   epochs: 100
@@ -19,6 +20,8 @@ params:                  # passed straight to model.train(...) – see docs.ultr
   cache: false           # true / "ram" / "disk" speeds up small datasets
   seed: ${seed}
   deterministic: true
+task_params:             # extra train settings per task (override params)
+  classify: {imgsz: 224}
 evaluation:
   conf: 0.25             # confidence threshold for the TP/FP/FN confusion matrix
   iou: 0.5               # IoU threshold that counts a detection as TP

@@ -1,13 +1,14 @@
 <#
   Windows helper for ml-training.  Easiest: double-click run.bat (or type .\run.ps1) for a menu.
-  YOLO object detection (dataset = folder name in data\raw, or a full path to the folder):
-    .\run.ps1 detect helmet                 # train yolo11n, full (Optuna tuning + 100 epochs)
-    .\run.ps1 detect helmet m quick         # yolo11m, quick test (no tuning, 30 epochs)
-    .\run.ps1 detect helmet all quick       # every size n,s,m,l,x one after another
-    .\run.ps1 detect D:\datasets\helmet s   # dataset outside the project (copied to data\raw)
-    .\run.ps1 detect helmet n full model.params.epochs=200   # extra Hydra overrides at the end
+  YOLO, every task: detect / segment / classify / pose / obb (read from the dataset automatically)
+  dataset = folder in data\raw, a full path, or a sample: coco8 coco8-seg coco8-pose dota8 mnist160
+    .\run.ps1 fit helmet                    # yolo11n, full (Optuna tuning + 100 epochs)
+    .\run.ps1 fit helmet m quick            # yolo11m, quick test (no tuning, 30 epochs)
+    .\run.ps1 fit helmet all quick          # every size n,s,m,l,x  (26m / all26 = YOLO26)
+    .\run.ps1 fit D:\datasets\leaves s      # dataset outside the project (copied to data\raw)
+    .\run.ps1 fit helmet n full data.task=segment model.params.epochs=200   # extra overrides
     .\run.ps1 results helmet                # compare all trained sizes (+ reports\helmet\compare.xlsx)
-    .\run.ps1 find helmet D:\images         # detect objects with the best trained model
+    .\run.ps1 find helmet D:\images         # predict with the best trained model
     .\run.ps1 find helmet D:\cam\clip.mp4 m # ... or with a chosen size
   Setup / tools:
     .\run.ps1 setup-yolo   # install (CPU)          .\run.ps1 setup-gpu   # install (NVIDIA GPU)
@@ -29,7 +30,7 @@ $env:MLFLOW_DISABLE_AGENT_HINT = "1"
 if (Test-Path .gpu) { $env:UV_NO_SYNC = "1" }
 $CudaIndex = "https://download.pytorch.org/whl/cu126"
 $Sizes = @("yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x")
-$HelpLines = 19
+$HelpLines = 20
 
 function Need-Uv {
     if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
@@ -55,12 +56,16 @@ function Get-Dataset([string]$Ds) {
     return @{ Name = $Ds; Args = @("data=yolo", "data.name=$Ds") }
 }
 
+# n -> yolo11n, 26m -> yolo26m, all -> yolo11n..x, all26 -> yolo26n..x
 function Get-Sizes([string]$Size) {
     if (-not $Size) { return @("yolo11n") }
-    if ($Size -eq "all") { return $Sizes }
-    $s = $Size.ToLower() -replace '^yolo11', ''
-    if ("n", "s", "m", "l", "x" -notcontains $s) { throw "Unknown size '$Size' (use n, s, m, l, x or all)" }
-    return @("yolo11$s")
+    $s = $Size.ToLower() -replace '^yolo', ''
+    $gen = "11"
+    if ($s -match '^(11|26)(.*)$') { $gen = $Matches[1]; $s = $Matches[2] }
+    elseif ($s -match '^all(11|26)$') { $gen = $Matches[1]; $s = "all" }
+    if ($s -eq "all") { return @("n", "s", "m", "l", "x" | ForEach-Object { "yolo$gen$_" }) }
+    if ("n", "s", "m", "l", "x" -notcontains $s) { throw "Unknown size '$Size' (use n, s, m, l, x, all, or 26n ... all26)" }
+    return @("yolo$gen$s")
 }
 
 function Get-ModeArgs([string]$Mode) {
@@ -72,12 +77,14 @@ function Get-ModeArgs([string]$Mode) {
 }
 
 function Invoke-Detect([string]$Ds, [string]$Size, [string]$Mode, [string[]]$Extra) {
-    if (-not $Ds) { throw "Usage: .\run.ps1 detect <dataset> [n|s|m|l|x|all] [quick|full] [overrides]" }
+    if (-not $Ds) { throw "Usage: .\run.ps1 fit <dataset> [n|s|m|l|x|all] [quick|full] [overrides]" }
     if (-not $Mode) { $Mode = "full" }
     $d = Get-Dataset $Ds
     $models = Get-Sizes $Size
     $modeArgs = Get-ModeArgs $Mode
-    $dataArgs = $d.Args
+    # data.* overrides (e.g. data.task=segment) must reach prepare/featurize as well
+    $dataArgs = @($d.Args) + @($Extra | Where-Object { $_ -match '^\+?data\.' })
+    $Extra = @($Extra | Where-Object { $_ -notmatch '^\+?data\.' })
     Say "Dataset: $($d.Name)   Models: $($models -join ', ')   Mode: $Mode"
     Say "[1/2] Preparing dataset..."
     uv run mlt-prepare @dataArgs
@@ -112,16 +119,16 @@ function Invoke-Find([string]$Ds, [string]$InputPath, [string]$Size, [string[]]$
     if ($Size) { $m = (Get-Sizes $Size)[0] }
     else {
         $m = (uv run python -m ml_training.compare $d.Name --best | Select-Object -Last 1)
-        if ($LASTEXITCODE -ne 0 -or -not $m) { throw "No trained model for '$($d.Name)'. Train first: .\run.ps1 detect $Ds" }
+        if ($LASTEXITCODE -ne 0 -or -not $m) { throw "No trained model for '$($d.Name)'. Train first: .\run.ps1 fit $Ds" }
     }
     $src = $InputPath.Trim().Trim('"')
     if ($src -notmatch '://') { $src = (Resolve-Path $src).Path -replace '\\', '/' }
     $dataArgs = $d.Args
-    Say "Detecting with $m on $src"
+    Say "Predicting with $m on $src"
     uv run mlt-predict @dataArgs "model=$m" "+input='$src'" @Extra
     $out = "reports\$($d.Name)\$m\predict"
     if ($LASTEXITCODE -eq 0 -and (Test-Path $out)) {
-        Say "Annotated files + detections.csv: $out" "Green"
+        Say "Annotated files + detections.csv (one row per prediction): $out" "Green"
         Invoke-Item $out
     }
 }
@@ -141,20 +148,24 @@ function Read-Choice([string]$Prompt, [string[]]$Options, [int]$Default = 1) {
 function Select-Dataset([switch]$Trained) {
     if ($Trained) { $names = @(Get-ChildItem models -Directory -ErrorAction SilentlyContinue | Where-Object { Get-ChildItem $_.FullName -Filter *.pt -File } | ForEach-Object Name) }
     else { $names = @(Get-ChildItem data\raw -Directory -ErrorAction SilentlyContinue | ForEach-Object Name) }
-    $names = @($names | Where-Object { $_ -ne "pretrained" })
+    $names = @($names | Where-Object { "pretrained", "runs" -notcontains $_ })
     Say "`nDataset:"
     $opts = $names + @("Type a folder path...")
+    if (-not $Trained) { $opts += "Sample dataset (auto-download, to try each task)..." }
     $i = Read-Choice "Choose" $opts
     if ($i -lt $names.Count) { return $names[$i] }
-    return (Read-Host "Folder path (you can drag the folder here)").Trim('"')
+    if ($i -eq $names.Count) { return (Read-Host "Folder path (you can drag the folder here)").Trim('"') }
+    $samples = @("coco8", "coco8-seg", "coco8-pose", "dota8", "mnist160")
+    $j = Read-Choice "Sample" @("coco8       detect", "coco8-seg   segment", "coco8-pose  pose", "dota8       obb (rotated boxes)", "mnist160    classify")
+    return $samples[$j]
 }
 
 function Show-Menu {
     while ($true) {
         Say "`n========== ML Training =========="
         $i = Read-Choice "Choose" @(
-            "Train YOLO (object detection)",
-            "Detect objects in images / video with a trained model",
+            "Train YOLO (detect / segment / classify / pose / obb)",
+            "Predict images / video with a trained model",
             "Compare trained YOLO models",
             "Open MLflow UI (all runs, metrics, model registry)",
             "Install / update (CPU or NVIDIA GPU)",
@@ -165,9 +176,11 @@ function Show-Menu {
             switch ($i) {
                 0 {
                     $ds = Select-Dataset
+                    Say "`nYOLO version:"
+                    $gen = @("", "26")[(Read-Choice "Choose" @("YOLO11 (proven, default)", "YOLO26 (newest)"))]
                     Say "`nModel size (n = fastest ... x = most accurate):"
                     $sizeOpts = @("n  (nano)", "s  (small)", "m  (medium)", "l  (large)", "x  (extra large)", "all sizes, one after another")
-                    $size = @("n", "s", "m", "l", "x", "all")[(Read-Choice "Choose" $sizeOpts)]
+                    $size = $gen + @("n", "s", "m", "l", "x", "all")[(Read-Choice "Choose" $sizeOpts)]
                     Say "`nTraining mode:"
                     $mode = @("quick", "full")[(Read-Choice "Choose" @("Quick test (no tuning, 30 epochs)", "Full (Optuna tuning + 100 epochs)"))]
                     $script:LastReport = $null
@@ -197,13 +210,14 @@ function Show-Menu {
 switch ($Task) {
     "menu" { Show-Menu }
     "help" { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
-    "detect" {
+    { $_ -in "fit", "detect" } {
         $a = @($Rest)
         $ds = $a[0]; $size = $null; $mode = $null; $i = 1
         if ($a.Count -gt $i -and $a[$i] -notmatch '=') { $size = $a[$i]; $i++ }
         if ($a.Count -gt $i -and $a[$i] -notmatch '=') { $mode = $a[$i]; $i++ }
         $extra = @(); if ($a.Count -gt $i) { $extra = $a[$i..($a.Count - 1)] }
         Invoke-Detect $ds $size $mode $extra
+        break
     }
     "results" { Show-Results $Rest[0] }
     "find" {
