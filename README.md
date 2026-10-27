@@ -96,8 +96,9 @@
 | สภาพแวดล้อม | Python, เวอร์ชันไลบรารี (torch, ultralytics ...), ชื่อเครื่อง, GPU, `uv.lock` | `lineage/environment.json` |
 | ไฟล์ | รายงาน Excel, กราฟ, โฟลเดอร์ผล Ultralytics ทั้งหมด, `best.pt` (ใน Model Registry) + `last.pt` | `reports/`, `ultralytics/`, `weights/` |
 | การใช้งาน | ทุกครั้งที่ predict / find: input, weights (+ hash), จำนวนผลต่อ class, CSV | run ที่ tag `stage=predict` |
+| XAI | ทุกครั้งที่ explain: ตัวเลขสรุป, Excel XAI, ภาพ heatmap ใน Gallery | run ที่ tag `stage=xai` |
 
-นอกจากนี้ทุกคำสั่ง (prepare / featurize / train / predict / clean) ถูกจดเป็น 1 บรรทัดใน `logs\history.jsonl`
+นอกจากนี้ทุกคำสั่ง (prepare / featurize / train / predict / explain / clean) ถูกจดเป็น 1 บรรทัดใน `logs\history.jsonl`
 ดูด้วย `.\run.ps1 history` (หรือเมนู *History*) ได้ตาราง + `logs\history.xlsx` · คำสั่ง `clean` ไม่ลบไฟล์นี้
 และการลบเองก็ถูกจดไว้ด้วย · ปิดบางอย่างได้ใน `configs/config.yaml` หมวด `mlflow:`
 (`system_metrics`, `log_weights`, `log_predictions`)
@@ -105,6 +106,33 @@
 ต่อท้ายด้วยค่า Hydra ได้เสมอ เช่น `.\run.ps1 fit helmet n full model.params.epochs=200 model.params.batch=-1`
 ถ้าระบบเดางานผิด บังคับได้ด้วย `data.task=segment` (หรือ detect / pose / obb / classify) · คำสั่งเดิม `detect` ยังใช้ได้
 รายละเอียดเชิงลึกอยู่ในหัวข้อ 5
+
+### XAI: โมเดลมองตรงไหน และทำไมถึงตัดสินแบบนั้น
+
+```powershell
+.\run.ps1 explain helmet            # โมเดลที่ดีที่สุดของ helmet, ภาพ test 100 ภาพ
+.\run.ps1 explain helmet m 300      # ขนาด m, 300 ภาพ  (หรือเมนูข้อ 4 "Explain a model")
+.\run.ps1 explain helmet xai.conf=0.4 xai.split=val   # ปรับค่าอื่นได้ (ดู configs/config.yaml หมวด xai:)
+```
+
+ทำได้ทุกงาน (detect / segment / pose / obb / classify) ผลอยู่ที่ `reports\<dataset>\<model>\xai\`
+
+| วิธี | ตอบคำถาม |
+|---|---|
+| **EigenCAM** | ภาพรวม โมเดล "มอง" ตรงไหนของภาพ (ไม่ขึ้นกับ class) |
+| **Grad-CAM รายกรอบ** | กรอบนี้ถูกตัดสินว่าเป็น class นี้ เพราะเห็นอะไร (จุดร้อน = หลักฐาน) |
+| **attention lift / pointing game** | ความร้อนอยู่ในกรอบจริงไหม: >1 = มองที่วัตถุ · <1 = ใช้บริบทรอบๆ ตัดสิน |
+| **จับคู่กับ label จริง** | ทุกกรอบเป็น TP หรือ FP แบบไหน (background / localization / class / duplicate) และทุกวัตถุที่พลาดเป็น FN แบบไหน (missed / wrong class / poor box) |
+
+ชีตใน `xai_report.xlsx`:
+**Summary** (ตัวเลขสำคัญพร้อม 95% CI และคำอธิบายภาษาไทย) ·
+**Stats** (ทดสอบสถิติพร้อมคำตอบ เช่น ตอนทายถูกโมเดลมองที่วัตถุมากกว่าตอนทายผิดไหม, ขนาดวัตถุมีผลไหม ใช้ Mann-Whitney U, Spearman, Chi-square + Cramér's V, point-biserial, Kruskal-Wallis พร้อม p-value และ effect size) ·
+**PerClass** (P/R/F1 + Wilson 95% CI, ชนิดความผิดพลาด, recall ตามขนาด, conf ที่ดีที่สุดต่อ class) ·
+**Detections / Objects / Images** (ทุกกรอบ / ทุกวัตถุ / ทุกภาพ คลิกลิงก์เปิดภาพ heatmap ได้) ·
+**Errors**, **Size**, **Calibration** (ECE / Brier: conf เชื่อได้แค่ไหน), **Threshold** (P/R/F1 ทุกค่า conf) ·
+**Gallery** (ภาพที่ผิดมากที่สุดและดีที่สุด: กรอบ | EigenCAM | Grad-CAM) · **Glossary** (ความหมายทุกคำ)
+
+classify จะได้ Confusion matrix, คู่ class ที่สับสนบ่อย, ภาพที่ผิดทั้งที่มั่นใจ และ Grad-CAM ของทั้ง class ที่ทายและ class ที่ถูก
 
 ---
 

@@ -5,7 +5,7 @@ Python + library versions, CPU / RAM / GPU, uv.lock + pyproject.toml, and a fing
 (sha256 over file contents) of the exact data used – plus the split file lists.
 
 Across runs (``record``): one JSON line per command in ``logs/history.jsonl``
-(prepare, featurize, train, predict, clean) – never deleted by ``clean``.
+(prepare, featurize, train, predict, xai, clean) – never deleted by ``clean``.
 """
 
 from __future__ import annotations

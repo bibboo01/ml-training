@@ -11,6 +11,8 @@
     .\run.ps1 results helmet                # compare all trained sizes (+ reports\helmet\compare.xlsx)
     .\run.ps1 find helmet D:\images         # predict with the best trained model
     .\run.ps1 find helmet D:\cam\clip.mp4 m # ... or with a chosen size
+    .\run.ps1 explain helmet               # XAI: heatmaps + why each detection + statistics Excel
+    .\run.ps1 explain helmet m 300         # ... model size m, 300 test images (default 100)
     .\run.ps1 clean helmet                  # delete results of one dataset (asks first; add raw = data too)
     .\run.ps1 clean all                     # delete every result + MLflow/Optuna history
     .\run.ps1 tune                          # make / view / edit tuning presets (common settings only)
@@ -35,7 +37,7 @@ $env:MLFLOW_DISABLE_AGENT_HINT = "1"
 if (Test-Path .gpu) { $env:UV_NO_SYNC = "1" }
 $CudaIndex = "https://download.pytorch.org/whl/cu126"
 $Sizes = @("yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x")
-$HelpLines = 25
+$HelpLines = 27
 
 function Need-Uv {
     if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
@@ -138,6 +140,26 @@ function Invoke-Find([string]$Ds, [string]$InputPath, [string]$Size, [string[]]$
     }
 }
 
+function Invoke-Explain([string]$Ds, [string]$Size, [string]$Count, [string[]]$Extra) {
+    if (-not $Ds) { throw "Usage: .\run.ps1 explain <dataset> [n|s|m|l|x] [images]" }
+    $d = Get-Dataset $Ds
+    if ($Size) { $m = (Get-Sizes $Size)[0] }
+    else {
+        $m = (uv run python -m ml_training.compare $d.Name --best | Select-Object -Last 1)
+        if ($LASTEXITCODE -ne 0 -or -not $m) { throw "No trained model for '$($d.Name)'. Train first: .\run.ps1 fit $Ds" }
+    }
+    $more = @($Extra)
+    if ($Count) { $more += "xai.max_images=$Count" }
+    $dataArgs = $d.Args
+    Say "Explaining $m on $($d.Name) (heatmaps + statistics)..."
+    uv run python -m ml_training.xai.run @dataArgs "model=$m" @more
+    $x = "reports\$($d.Name)\$m\xai\xai_report.xlsx"
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $x)) {
+        Say "XAI report: $x   (heatmap images: reports\$($d.Name)\$m\xai\images)" "Green"
+        $script:LastReport = $x
+    }
+}
+
 function Invoke-Clean([string[]]$A) {
     if (-not $A -or -not $A[0]) { throw "Usage: .\run.ps1 clean <dataset|all> [raw]" }
     $flags = @()
@@ -215,11 +237,12 @@ function Show-Menu {
             "Train YOLO (detect / segment / classify / pose / obb)",
             "Predict images / video with a trained model",
             "Compare trained YOLO models",
+            "Explain a model: XAI heatmaps + why it detects + statistics Excel",
             "Tuning settings (view / create / edit presets)",
             "Open MLflow UI (all runs, metrics, model registry)",
             "Install / update (CPU or NVIDIA GPU)",
             "Clean data / results (asks before deleting)",
-            "History (every prepare / train / predict / clean)",
+            "History (every prepare / train / predict / explain / clean)",
             "Tabular data: run the full pipeline",
             "Help (all commands)",
             "Exit")
@@ -246,13 +269,20 @@ function Show-Menu {
                     Invoke-Find $ds $src "" @()
                 }
                 2 { $ds = Select-Dataset -Trained; Show-Results $ds; $x = "reports\$ds\compare.xlsx"; if ((Test-Path $x) -and ((Read-Host "Open compare.xlsx? (y/n) [y]") -ne "n")) { Invoke-Item $x } }
-                3 { Show-TuningMenu }
-                4 { Start-Process "http://127.0.0.1:5000"; uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db" --port 5000 }
-                5 {
+                3 {
+                    $ds = Select-Dataset -Trained
+                    $n = Read-Host "How many test images to analyse? [100]"
+                    $script:LastReport = $null
+                    Invoke-Explain $ds "" $n @()
+                    if ($script:LastReport -and ((Read-Host "Open the XAI Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
+                }
+                4 { Show-TuningMenu }
+                5 { Start-Process "http://127.0.0.1:5000"; uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db" --port 5000 }
+                6 {
                     $g = Read-Choice "Install for" @("CPU only", "NVIDIA GPU (CUDA)")
                     if ($g -eq 0) { & $PSCommandPath setup-yolo } else { & $PSCommandPath setup-gpu }
                 }
-                6 {
+                7 {
                     $names = @(@("data\processed", "models", "reports") | ForEach-Object { Get-ChildItem $_ -Directory -ErrorAction SilentlyContinue } | ForEach-Object Name | Where-Object { "pretrained", "runs", "figures" -notcontains $_ } | Sort-Object -Unique)
                     Say "`nClean what?"
                     $opts = $names + @("ALL datasets (every result + MLflow / Optuna history)")
@@ -261,13 +291,13 @@ function Show-Menu {
                     $raw = (Read-Host "Also delete the raw dataset in data\raw? (y/n) [n]") -eq "y"
                     if ($raw) { Invoke-Clean @($target, "raw") } else { Invoke-Clean @($target) }
                 }
-                7 {
+                8 {
                     uv run python -m ml_training.lineage 30 --excel
                     if ((Test-Path logs\history.xlsx) -and ((Read-Host "Open history.xlsx? (y/n) [n]") -eq "y")) { Invoke-Item logs\history.xlsx }
                 }
-                8 { uv run dvc repro; uv run dvc metrics show }
-                9 { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
-                10 { return }
+                9 { uv run dvc repro; uv run dvc metrics show }
+                10 { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
+                11 { return }
             }
         } catch { Say "Error: $($_.Exception.Message)" "Red" }
     }
@@ -293,6 +323,18 @@ switch ($Task) {
         break
     }
     "results" { Show-Results $Rest[0] }
+    { $_ -in "explain", "xai" } {
+        # explain <dataset> [size] [images] [key=value ...]
+        $a = @($Rest); $size = $null; $count = $null; $extra = @()
+        for ($i = 1; $i -lt $a.Count; $i++) {
+            $t = $a[$i]
+            if ($t -match '=') { $extra += $t }
+            elseif ($t -match '^\d+$') { $count = $t }
+            else { $size = $t }
+        }
+        Invoke-Explain $a[0] $size $count $extra
+        break
+    }
     "clean" { Invoke-Clean @($Rest) }
     "tune" { Show-TuningMenu }
     "history" { $n = 30; if ($Rest) { $n = $Rest[0] }; uv run python -m ml_training.lineage $n --excel }

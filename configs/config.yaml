@@ -38,6 +38,18 @@ evaluation:
   # Threshold for binary classification on predict_proba
   threshold: 0.5
 
+xai:                     # .\run.ps1 explain <dataset>  (heatmaps + statistics workbook)
+  split: auto              # auto = test, else val
+  max_images: 100          # images to analyse (0 = all)
+  conf: 0.25               # a prediction counts from this confidence
+  iou: 0.5                 # IoU needed to count as TP
+  low_conf: 0.01           # predictions kept for the threshold sweep / calibration
+  max_boxes: 20            # Grad-CAM heatmaps per image (highest confidence first)
+  bootstrap: 1000          # resamples for the 95% confidence intervals
+  imgsz: null              # null = the size the model was trained with
+  gallery: 12              # images shown in the Gallery sheet (worst first)
+  seed: 0
+
 report:
   excel: true
   filename: report.xlsx
