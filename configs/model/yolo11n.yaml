@@ -1,5 +1,5 @@
 # Ultralytics YOLO object detection. Requires: uv sync --extra yolo   (GPU: .\run.ps1 setup-gpu)
-# Other sizes: yolo11s.pt / yolo11m.pt / yolo11l.pt, yolov8n.pt, or your own .pt in models/pretrained/
+# Sizes: yolo11n (fastest) < s < m < l < x (most accurate). Also yolov8n.pt etc., or your own .pt in models/pretrained/
 name: yolo11n
 backend: ultralytics
 class_path: ultralytics.YOLO

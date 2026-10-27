@@ -15,6 +15,38 @@
 
 ---
 
+## เริ่มใช้งานแบบง่ายที่สุด (YOLO)
+
+1. วางโฟลเดอร์ dataset (export แบบ YOLO จาก Roboflow / CVAT / Label Studio) ไว้ที่ `data\raw\<ชื่อ>\` เช่น `data\raw\helmet\`
+2. **ดับเบิลคลิก `run.bat`** แล้วเลือกจากเมนู (ไม่ต้องแก้ ExecutionPolicy):
+
+```
+========== ML Training ==========
+  1) Train YOLO (object detection)          <- เลือก dataset > ขนาด n/s/m/l/x/all > quick/full
+  2) Detect objects in images / video       <- ลาก/วางโฟลเดอร์รูปหรือวิดีโอได้เลย
+  3) Compare trained YOLO models            <- ตารางเทียบทุกขนาด + compare.xlsx
+  4) Open MLflow UI
+  5) Install / update (CPU or NVIDIA GPU)   <- ทำข้อนี้ก่อนครั้งแรก
+  ...
+```
+
+หรือพิมพ์คำสั่งสั้นใน PowerShell (ระบบเตรียม/แบ่งข้อมูลให้เองก่อนเทรน):
+
+```powershell
+.\run.ps1 detect helmet                # yolo11n แบบเต็ม (Optuna + 100 epochs)
+.\run.ps1 detect helmet m quick        # yolo11m แบบลองเร็ว (ไม่จูน, 30 epochs)
+.\run.ps1 detect helmet all quick      # ครบทุกขนาด n,s,m,l,x
+.\run.ps1 detect D:\datasets\helmet s  # dataset อยู่นอกโปรเจกต์ (คัดลอกเข้า data\raw ให้)
+.\run.ps1 results helmet               # เทียบผลทุกขนาด
+.\run.ps1 find helmet D:\images        # ตีกรอบด้วยโมเดลที่ดีที่สุด (หรือ ... D:\clip.mp4 m)
+.\run.ps1 help                         # ดูคำสั่งทั้งหมด
+```
+
+ต่อท้ายด้วยค่า Hydra ได้เสมอ เช่น `.\run.ps1 detect helmet n full model.params.epochs=200 model.params.batch=-1`
+รายละเอียดเชิงลึกอยู่ในหัวข้อ 5
+
+---
+
 ## 1. ติดตั้ง (Windows)
 
 ต้องมี [Git for Windows](https://git-scm.com/download/win) ก่อน จากนั้นเปิด **PowerShell** ในโฟลเดอร์โปรเจกต์ เช่น `D:\ml-trianing`
@@ -149,7 +181,7 @@ uv run mlt-train     data=yolo data.name=helmet model=yolo11n
 - Optuna จะลอง hyperparameter (lr0, momentum, augmentation, loss gain ฯลฯ) แบบสั้น `model.hpo_epochs` (10 epochs)
   จำนวน `hpo.n_trials` ครั้ง แล้วเทรนตัวจริงด้วยค่าที่ดีที่สุด `model.params.epochs` (100 epochs)
 - ปรับได้ เช่น `hpo.n_trials=20 model.hpo_epochs=15 model.params.epochs=200 model.params.imgsz=960 model.params.batch=-1`
-- ข้ามการจูน: `hpo=none`  · โมเดลใหญ่ขึ้น: `model=yolo11s` · ใช้ weights ของคุณ: `model.weights=models/pretrained/my.pt`
+- ข้ามการจูน: `hpo=none`  · เลือกขนาด: `model=yolo11n|yolo11s|yolo11m|yolo11l|yolo11x` (n เร็วสุด, x แม่นสุด) · เทรนครบทุกขนาด: `.\run.ps1 detect helmet all` · ใช้ weights ของคุณ: `model.weights=models/pretrained/my.pt`
 - ลองระบบก่อนด้วยตัวอย่าง 8 รูป: `uv run mlt-prepare data=coco8` แล้ว `uv run mlt-train data=coco8 model=yolo11n`
 - หรือผ่าน DVC: แก้ `vars` ใน `pipelines/yolo/dvc.yaml` แล้ว `.\run.ps1 yolo`
   (เก็บเวอร์ชันรูปด้วย `uv run dvc add data/raw/helmet`)
@@ -194,7 +226,7 @@ ml-training/
 │   ├── config.yaml          ค่าหลัก (paths, mlflow, evaluation, report)
 │   ├── data/                breast_cancer, iris, csv, openml, coco8, yolo
 │   ├── model/               random_forest, logistic_regression, gradient_boosting, svm, lightning_mlp,
-│   │                        yolo11n, yolo11s
+│   │                        yolo11n/s/m/l/x
 │   └── hpo/                 optuna, none
 ├── data/
 │   ├── external/            ไฟล์จากภายนอก (ของคุณ)
@@ -222,7 +254,7 @@ ml-training/
 ├── dvc.yaml / dvc.lock      DVC pipeline (ข้อมูลตาราง)
 ├── pipelines/yolo/dvc.yaml  DVC pipeline (YOLO)
 ├── pyproject.toml / uv.lock dependencies (uv)
-├── run.ps1                  คำสั่งลัดสำหรับ Windows (Makefile สำหรับ Linux/macOS)
+├── run.bat / run.ps1        เมนู + คำสั่งลัดสำหรับ Windows (Makefile สำหรับ Linux/macOS)
 └── docs/ROADMAP.md          แผนไป Level 4 และ 5
 ```
 
