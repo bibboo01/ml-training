@@ -39,6 +39,9 @@ ocr = [
     "easyocr>=1.7",
     "pypdfium2>=4.30",
 ]
+vision = [
+    "timm>=1.0",
+]
 
 [dependency-groups]
 # Level 4 tooling – already wired so it is ready when you move up a level.

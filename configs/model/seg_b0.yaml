@@ -1,0 +1,18 @@
+# SegFormer-B0 (3.7M params): fast semantic segmentation, fits any GPU.
+name: seg_b0
+backend: vision
+hf_model: nvidia/mit-b0          # ImageNet-pretrained encoder from the HuggingFace hub (downloaded once)
+params:
+  epochs: 40
+  batch_size: 8
+  lr: 6.0e-5
+  weight_decay: 0.01
+  imgsz: 512
+  patience: 8
+  amp: true
+  label_smoothing: 0.0
+  warmup_epochs: 1
+search_space:
+  lr: {type: float, low: 1.0e-5, high: 1.0e-3, log: true}
+  weight_decay: {type: float, low: 1.0e-4, high: 0.1, log: true}
+  batch_size: {type: categorical, choices: [4, 8, 16]}

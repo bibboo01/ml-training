@@ -1,0 +1,6 @@
+# Built-in sample, generated on first use (no download): classify circle / square / triangle
+defaults:
+  - images
+  - _self_
+name: shapes
+sample: shapes

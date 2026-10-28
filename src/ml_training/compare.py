@@ -16,10 +16,10 @@ import pandas as pd
 from ml_training.utils import PROJECT_ROOT
 
 # first metric found is the ranking key (detect/segment/pose/obb, YOLO classify, tabular)
-RANK_KEYS = ["map50_95", "top1", "f1", "accuracy"]
+RANK_KEYS = ["map50_95", "miou", "top1", "f1", "accuracy"]
 COLUMNS = [
-    "map50", "map50_95", "box_map50_95", "top1", "top5", "precision", "recall", "f1", "accuracy",
-    "TP", "FP", "FN", "TN", "fit_seconds",
+    "map50", "map50_95", "box_map50_95", "miou", "pixel_accuracy", "top1", "top5", "precision",
+    "recall", "f1", "accuracy", "TP", "FP", "FN", "TN", "fit_seconds",
 ]  # fmt: skip
 
 
@@ -28,9 +28,10 @@ def collect(dataset: str, reports: Path) -> pd.DataFrame:
     for path in sorted((reports / dataset).glob("*/metrics.json")):
         test = json.loads(path.read_text(encoding="utf-8")).get("test") or {}
         models = PROJECT_ROOT / "models" / dataset
-        trained = (models / f"{path.parent.name}.pt").exists() or (  # YOLO .pt / HF model folder
-            models / path.parent.name / "model" / "config.json"
-        ).exists()
+        folder = models / path.parent.name / "model"  # YOLO .pt / HF text model / vision model
+        trained = (models / f"{path.parent.name}.pt").exists() or any(
+            (folder / f).exists() for f in ("config.json", "vision.json")
+        )
         rows.append({"model": path.parent.name, **test, "has_pt": trained})
     df = pd.DataFrame(rows)
     if df.empty:

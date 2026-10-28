@@ -1,0 +1,20 @@
+# EfficientNet-B0 (5M params): small and fast, good accuracy per FLOP – the default for small GPUs.
+name: img_efficientnet
+backend: vision
+arch: efficientnet_b0
+pretrained: true          # ImageNet weights from the HuggingFace hub (downloaded once)
+params:
+  epochs: 30
+  batch_size: 32
+  lr: 5.0e-4
+  weight_decay: 0.05
+  imgsz: 224
+  patience: 6
+  amp: true
+  label_smoothing: 0.1
+  warmup_epochs: 1
+search_space:
+  lr: {type: float, low: 1.0e-5, high: 1.0e-3, log: true}
+  weight_decay: {type: float, low: 1.0e-4, high: 0.1, log: true}
+  batch_size: {type: categorical, choices: [16, 32, 64]}
+  label_smoothing: {type: float, low: 0.0, high: 0.2}

@@ -1,0 +1,13 @@
+# Images for the vision backend (models img_* = classification, seg_* = semantic segmentation).
+#   .\run.ps1 vision flowers img_convnext        (folder data\raw\flowers)
+#   uv run mlt-prepare data=images data.name=flowers data.path=D:/data/flowers
+# Classify: one folder per class (<class>/*.jpg), optionally inside train/ val/ test/.
+# Segment:  images/ + masks/ (mask PNG pixel = class index, 0 = background), or a Roboflow
+#           "Semantic Segmentation Masks" export (x.jpg + x_mask.png + _classes.csv). See vision_data.py.
+name: my_images
+kind: vision
+path: null               # null = data/raw/<name>
+task: auto               # auto | classify | segment
+class_names: null        # null = folder names (classify) / classes.txt / _classes.csv (segment)
+val_size: 0.15           # used only when the data has no validation split
+test_size: 0.15          # used only when the data has no test split

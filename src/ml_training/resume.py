@@ -40,6 +40,8 @@ def describe(s: dict) -> str:
         cks = sorted(final.glob("checkpoint-*"), key=lambda c: int(c.name.split("-")[-1]))
         if cks:  # HuggingFace (text) checkpoints
             last = cks[-1]
+        elif (final / "last.pt").exists():  # vision (timm / SegFormer)
+            last = final / "last.pt"
         else:
             from ml_training.modeling.yolo import unfinished_checkpoint
 

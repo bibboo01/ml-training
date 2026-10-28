@@ -1,0 +1,22 @@
+# Small CNN trained from scratch – no download, learns the shapes sample in a minute on CPU.
+# For trying the pipeline / tests only; real projects use img_efficientnet / img_convnext / img_vit.
+name: img_tiny
+backend: vision
+arch: simple_cnn          # built in; any timm name works too (resnet18, ...)
+width: 32
+pretrained: false
+hpo_epochs: 3
+params:
+  epochs: 15
+  batch_size: 16
+  lr: 1.0e-3
+  weight_decay: 0.01
+  imgsz: 64
+  patience: 5
+  amp: true
+  label_smoothing: 0.0
+  warmup_epochs: 1
+search_space:
+  lr: {type: float, low: 3.0e-4, high: 3.0e-3, log: true}
+  weight_decay: {type: float, low: 1.0e-4, high: 0.1, log: true}
+  batch_size: {type: categorical, choices: [16, 32]}

@@ -1,0 +1,6 @@
+# Built-in sample, generated on first use (no download): segment circles and squares pixel by pixel
+defaults:
+  - images
+  - _self_
+name: shapes-seg
+sample: shapes-seg

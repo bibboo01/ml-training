@@ -20,9 +20,9 @@ from types import ModuleType
 from omegaconf import DictConfig
 
 # data.kind (or data.source) -> backend module
-DATA_KINDS = {"yolo": "yolo", "ultralytics": "yolo", "text": "text"}
+DATA_KINDS = {"yolo": "yolo", "ultralytics": "yolo", "text": "text", "vision": "vision"}
 # model.backend -> backend module
-MODEL_BACKENDS = {"ultralytics": "yolo", "transformers": "text"}
+MODEL_BACKENDS = {"ultralytics": "yolo", "transformers": "text", "vision": "vision"}
 
 
 def data_backend(cfg: DictConfig) -> ModuleType | None:

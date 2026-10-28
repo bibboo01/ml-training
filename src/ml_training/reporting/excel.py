@@ -22,6 +22,8 @@ BOUNDED_METRICS = [
     "box_map50",
     "box_map50_95",
     "top1",
+    "miou",
+    "pixel_accuracy",
     "top5",
     "accuracy",
     "balanced_accuracy",
@@ -241,7 +243,9 @@ def _per_class_sheet(wb, f, result: EvalResult):
     cols = list(pc.columns)
     chart = wb.add_chart({"type": "column"})
     shown = [
-        m for m in ["precision", "recall", "specificity", "f1", "AP50", "AP50_95"] if m in cols
+        m
+        for m in ["iou", "precision", "recall", "specificity", "f1", "AP50", "AP50_95"]
+        if m in cols
     ]
     for i, m in enumerate(shown):
         j = cols.index(m)

@@ -1,0 +1,22 @@
+# Small U-Net trained from scratch – no download, learns the shapes-seg sample in a minute or two on CPU.
+# For trying the pipeline / tests only; real projects use seg_b0 / seg_b2 (pretrained SegFormer).
+# (hf_model: null + scratch: {width: 32} instead of arch = a small SegFormer from scratch.)
+name: seg_tiny
+backend: vision
+arch: simple_unet
+width: 16
+hpo_epochs: 3
+params:
+  epochs: 30
+  batch_size: 8
+  lr: 2.0e-3
+  weight_decay: 0.01
+  imgsz: 128
+  patience: 8
+  amp: true
+  label_smoothing: 0.0
+  warmup_epochs: 1
+search_space:
+  lr: {type: float, low: 5.0e-4, high: 5.0e-3, log: true}
+  weight_decay: {type: float, low: 1.0e-4, high: 0.1, log: true}
+  batch_size: {type: categorical, choices: [4, 8, 16]}

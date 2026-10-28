@@ -50,6 +50,7 @@
 .\run.ps1 fit D:\datasets\leaves s     # dataset อยู่นอกโปรเจกต์ (คัดลอกเข้า data\raw ให้)
 .\run.ps1 fit coco8-seg n quick        # ลองงาน segment ด้วยชุดตัวอย่าง (ดาวน์โหลดให้เอง)
 .\run.ps1 text reviews                 # ข้อความ / เอกสาร (ภาษาไทยได้) ดูหัวข้อ "ข้อความ และเอกสาร"
+.\run.ps1 vision flowers               # จัดหมวดภาพ ViT / ConvNeXt / EfficientNet หรือ segmentation ดูหัวข้อ "ภาพแบบอื่น"
 .\run.ps1 resume helmet                # เทรนต่อจากที่ค้าง (ไฟดับ / Ctrl+C / เครื่องค้าง) · resume เฉยๆ = ดูรายการที่ค้าง
 .\run.ps1 results helmet               # เทียบผลทุกขนาด
 .\run.ps1 find helmet D:\images        # ทำนายด้วยโมเดลที่ดีที่สุด (หรือ ... D:\clip.mp4 m)
@@ -187,6 +188,40 @@ PDF ใช้ข้อความในไฟล์ · PDF สแกนแล�
 ได้ทุกอย่างเหมือน YOLO: Optuna จูน (lr, batch, weight decay, warmup), Excel (Summary, Confusion, PerClass = TP/FP/FN ต่อ class
 หรือต่อชนิดข้อมูลสำหรับ NER, TrainingHistory, Predictions), MLflow + Model Registry, history, `resume` และ `results` เทียบโมเดล
 ตัวอย่างในตัว: `thai-sentiment` (รีวิว 3 อารมณ์), `thai-ner` (ชื่อ บริษัท สถานที่ วันที่ เงิน), `thai-docs` (เอกสาร 4 ประเภท)
+
+### ภาพแบบอื่นนอกจาก YOLO – `.\run.ps1 vision`
+
+จัดหมวดภาพด้วยโมเดลมาตรฐาน (ResNet / EfficientNet / ConvNeXt / ViT จาก timm) และ **semantic segmentation**
+(บอก class ทุกพิกเซล เช่น ถนน รอยร้าว แผล พื้นที่เพาะปลูก) ด้วย SegFormer · ติดตั้งครั้งแรกหลังอัปเดตนี้ให้รัน `.\run.ps1 setup-gpu` อีกครั้ง
+
+```powershell
+.\run.ps1 vision shapes                     # ลองระบบ: จัดหมวดรูปทรง (ไม่ต้องดาวน์โหลด)
+.\run.ps1 vision shapes-seg                 # ลองระบบ: segmentation ทุกพิกเซล (ไม่ต้องดาวน์โหลด)
+.\run.ps1 vision flowers                    # data\raw\flowers · efficientnet · จูน Optuna 8 รอบ
+.\run.ps1 vision D:\data\leaves convnext quick
+.\run.ps1 vision roads seg-b2               # โฟลเดอร์ images\ + masks\
+.\run.ps1 find flowers D:\new-photos         # ทำนายทั้งโฟลเดอร์ -> predictions.csv (+ ภาพระบายสีสำหรับ segmentation)
+```
+
+| ข้อมูลใน `data\raw\<ชื่อ>\` | งาน |
+|---|---|
+| โฟลเดอร์ย่อยตาม class (`cat\*.jpg`, `dog\*.jpg`) จะอยู่ใน `train\ val\ test\` ด้วยก็ได้ | **จัดหมวดภาพ** |
+| `images\` + `masks\` ชื่อไฟล์ตรงกัน (mask เป็น PNG ค่าพิกเซล = เลข class, 0 = พื้นหลัง) + `classes.txt` | **segmentation** |
+| Roboflow export แบบ "Semantic Segmentation Masks" (`x.jpg` + `x_mask.png` + `_classes.csv`) | **segmentation** |
+
+| ชื่อ | โมเดล | เหมาะกับ |
+|---|---|---|
+| `tiny` / `seg-tiny` | CNN / U-Net เล็กเทรนจากศูนย์ (ไม่ต้องดาวน์โหลด) | ลองระบบเท่านั้น |
+| `efficientnet` (ค่าเริ่มต้น) | EfficientNet-B0 | เล็ก เร็ว แม่นดี |
+| `resnet50` | ResNet-50 | มาตรฐาน ทนทาน |
+| `convnext` | ConvNeXt-Tiny | มักแม่นที่สุดในขนาดนี้ |
+| `vit` | ViT-B/16 | ข้อมูลเยอะ ต้อง GPU 8 GB+ |
+| `seg-b0` (ค่าเริ่มต้นของ segmentation) | SegFormer-B0 | เร็ว ใช้ GPU ไหนก็ได้ |
+| `seg-b2` | SegFormer-B2 | แม่นกว่า ต้อง GPU 8 GB+ |
+
+ใช้โมเดลอื่นของ timm ได้ทุกตัว เช่น `.\run.ps1 vision flowers efficientnet model.arch=efficientnet_b3`
+ได้ครบเหมือนงานอื่น: Optuna, Excel (classify: Confusion, PerClass, Predictions · segmentation: IoU / Dice ต่อ class, mIoU,
+pixel accuracy, ภาพตัวอย่าง ภาพจริง | คำตอบ | ที่โมเดลทาย), MLflow Registry, history, `resume`, `results`
 
 ---
 
