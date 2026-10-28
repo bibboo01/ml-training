@@ -1,0 +1,6 @@
+# Built-in sample, generated on first use (no download): classify: sentiment of Thai reviews (positive / negative / neutral)
+defaults:
+  - text
+  - _self_
+name: thai-sentiment
+sample: thai-sentiment

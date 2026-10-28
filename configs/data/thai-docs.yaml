@@ -1,0 +1,6 @@
+# Built-in sample, generated on first use (no download): classify documents: invoice / receipt / contract / quotation (.txt + .docx)
+defaults:
+  - text
+  - _self_
+name: thai-docs
+sample: thai-docs

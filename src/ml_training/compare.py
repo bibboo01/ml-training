@@ -27,8 +27,11 @@ def collect(dataset: str, reports: Path) -> pd.DataFrame:
     rows = []
     for path in sorted((reports / dataset).glob("*/metrics.json")):
         test = json.loads(path.read_text(encoding="utf-8")).get("test") or {}
-        weights = PROJECT_ROOT / "models" / dataset / f"{path.parent.name}.pt"
-        rows.append({"model": path.parent.name, **test, "has_pt": weights.exists()})
+        models = PROJECT_ROOT / "models" / dataset
+        trained = (models / f"{path.parent.name}.pt").exists() or (  # YOLO .pt / HF model folder
+            models / path.parent.name / "model" / "config.json"
+        ).exists()
+        rows.append({"model": path.parent.name, **test, "has_pt": trained})
     df = pd.DataFrame(rows)
     if df.empty:
         return df

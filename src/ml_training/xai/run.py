@@ -429,6 +429,10 @@ def explain(cfg: DictConfig) -> Path:
     x = settings(cfg)
     processed = Path(cfg.paths.processed)
     meta = read_json(processed / "meta.json")
+    if meta.get("kind") == "text":
+        raise ValueError(
+            "XAI heatmaps are for YOLO image models – text models are not supported yet"
+        )
     task, names = meta["task"], list(meta["class_names"])
     weights = find_weights(cfg)
     yolo = YOLO(str(weights))

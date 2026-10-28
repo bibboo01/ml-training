@@ -16,10 +16,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ml_training.runstate import STATE_FILE
 from ml_training.utils import PROJECT_ROOT, read_json
 
 MODELS = PROJECT_ROOT / "models"
-STATE_FILE = "run_state.json"  # written by modeling/yolo.py
 
 
 def states(models: Path = MODELS) -> list[dict]:
@@ -36,9 +36,14 @@ def states(models: Path = MODELS) -> list[dict]:
 def describe(s: dict) -> str:
     stage = s.get("stage", "?")
     if stage == "final":
-        from ml_training.modeling.yolo import unfinished_checkpoint
+        final = Path(s["dir"]) / "final"
+        cks = sorted(final.glob("checkpoint-*"), key=lambda c: int(c.name.split("-")[-1]))
+        if cks:  # HuggingFace (text) checkpoints
+            last = cks[-1]
+        else:
+            from ml_training.modeling.yolo import unfinished_checkpoint
 
-        last = unfinished_checkpoint(Path(s["dir"]) / "final")
+            last = unfinished_checkpoint(final)
         stage = "final training" + (f" (continue from {last.name})" if last else " (restarts)")
     elif stage == "hpo":
         stage = "Optuna search (finished trials are kept)"

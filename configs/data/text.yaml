@@ -1,0 +1,16 @@
+# Text and documents for the HuggingFace backend (models text_*). Thai works out of the box.
+#   .\run.ps1 text reviews                  (folder or file in data\raw\reviews)
+#   uv run mlt-prepare data=text data.name=reviews data.path=D:/data/reviews.csv
+# Accepts: CSV / Excel / JSONL with a text + label column, NER as JSONL tokens+tags or CoNLL,
+# or a folder of documents per class (.txt .pdf .docx, images with OCR). See text_data.py.
+name: my_texts
+kind: text
+path: null               # null = data/raw/<name>; a folder or a single file
+task: auto               # auto | classify | ner
+text_column: auto        # auto = text / sentence / content / review / ... or the longest column
+label_column: auto       # auto = label / category / class / intent / sentiment / ...
+class_names: null        # null = labels found in the data (sorted)
+val_size: 0.15           # used only when the data has no validation split
+test_size: 0.15          # used only when the data has no test split
+stratify: true
+ocr_langs: [th, en]      # EasyOCR languages for images / scanned PDFs

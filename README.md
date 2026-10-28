@@ -49,6 +49,7 @@
 .\run.ps1 fit helmet 26s               # YOLO26 ขนาด s   (all26 = YOLO26 ครบทุกขนาด)
 .\run.ps1 fit D:\datasets\leaves s     # dataset อยู่นอกโปรเจกต์ (คัดลอกเข้า data\raw ให้)
 .\run.ps1 fit coco8-seg n quick        # ลองงาน segment ด้วยชุดตัวอย่าง (ดาวน์โหลดให้เอง)
+.\run.ps1 text reviews                 # ข้อความ / เอกสาร (ภาษาไทยได้) ดูหัวข้อ "ข้อความ และเอกสาร"
 .\run.ps1 resume helmet                # เทรนต่อจากที่ค้าง (ไฟดับ / Ctrl+C / เครื่องค้าง) · resume เฉยๆ = ดูรายการที่ค้าง
 .\run.ps1 results helmet               # เทียบผลทุกขนาด
 .\run.ps1 find helmet D:\images        # ทำนายด้วยโมเดลที่ดีที่สุด (หรือ ... D:\clip.mp4 m)
@@ -149,6 +150,43 @@
 **Gallery** (ภาพที่ผิดมากที่สุดและดีที่สุด: กรอบ | EigenCAM | Grad-CAM) · **Glossary** (ความหมายทุกคำ)
 
 classify จะได้ Confusion matrix, คู่ class ที่สับสนบ่อย, ภาพที่ผิดทั้งที่มั่นใจ และ Grad-CAM ของทั้ง class ที่ทายและ class ที่ถูก
+
+### ข้อความ และเอกสาร (ภาษาไทยได้) – `.\run.ps1 text`
+
+ติดตั้งครั้งแรก (หรือหลังอัปเดตนี้) ให้รัน `.\run.ps1 setup-gpu` (หรือ `setup-yolo` ถ้าไม่มี GPU) อีกครั้ง
+เพื่อลง transformers / PyThaiNLP · ถ้าต้องอ่านเอกสารสแกนหรือรูปภาพ เพิ่ม `.\run.ps1 setup-ocr`
+
+```powershell
+.\run.ps1 text thai-sentiment tiny quick     # ลองระบบด้วยชุดตัวอย่าง (ไม่ต้องดาวน์โหลด)
+.\run.ps1 text reviews                       # data\raw\reviews (ไฟล์หรือโฟลเดอร์) · โมเดล base · จูน Optuna 8 รอบ
+.\run.ps1 text D:\data\invoices thai         # โฟลเดอร์เอกสารนอกโปรเจกต์ · โมเดลภาษาไทย
+.\run.ps1 find reviews "ส่งไว ของดีมาก"         # ทำนายประโยคเดียว
+.\run.ps1 find invoices D:\scans              # ทำนายทั้งโฟลเดอร์ (PDF / Word / รูป / txt) หรือไฟล์ CSV
+```
+
+ระบบดูไฟล์แล้วเลือกงานเอง (บังคับได้ด้วย `data.task=classify` หรือ `data.task=ner`):
+
+| ข้อมูลที่วางใน `data\raw\<ชื่อ>\` | งาน | ตัวอย่างใช้งาน |
+|---|---|---|
+| CSV / Excel / JSONL ที่มีคอลัมน์ข้อความ + คอลัมน์ label (หาชื่อคอลัมน์ให้เอง) | **จัดหมวดข้อความ** | sentiment, intent แชตบอต, จัดหมวดเรื่องร้องเรียน |
+| JSONL `{"tokens": [...], "tags": ["B-PER", "I-PER", "O", ...]}` หรือไฟล์ CoNLL | **NER – ดึงข้อมูลสำคัญ** | ชื่อ, บริษัท, วันที่, จำนวนเงิน จากใบแจ้งหนี้ / สัญญา |
+| โฟลเดอร์ย่อยตาม class ข้างในเป็น .txt .pdf .docx หรือรูป (.jpg .png .tif) | **จัดหมวดเอกสาร** | แยกใบแจ้งหนี้ / ใบเสร็จ / สัญญา / ใบเสนอราคา |
+
+มีคอลัมน์ `split` (train / val / test) หรือไฟล์ `train.csv` `val.csv` `test.csv` ระบบจะใช้ตามนั้น ไม่มีก็แบ่งให้ 70/15/15 แบบสมดุลต่อ class
+PDF ใช้ข้อความในไฟล์ · PDF สแกนและรูปภาพใช้ OCR (EasyOCR ไทย+อังกฤษ) · ข้อความที่ดึงได้เก็บไว้ที่ `data\interim\<ชื่อ>\texts\` ไม่ต้อง OCR ซ้ำ
+
+| ขนาด | โมเดล (HuggingFace) | เหมาะกับ |
+|---|---|---|
+| `tiny` | BERT เล็กเทรนจากศูนย์ (ไม่ต้องดาวน์โหลด) | ลองระบบเท่านั้น |
+| `small` | distilbert-base-multilingual-cased | เร็ว ใช้ CPU ได้ |
+| `base` (ค่าเริ่มต้น) | xlm-roberta-base | แม่นและรองรับไทยดี (แนะนำ GPU) |
+| `thai` | WangchanBERTa | ข้อความภาษาไทยล้วน มักดีที่สุด |
+| `large` | xlm-roberta-large | แม่นที่สุด ต้อง GPU 12 GB+ |
+
+ใช้โมเดลอื่นจาก HuggingFace ได้ทุกตัว เช่น `.\run.ps1 text reviews base model.pretrained=microsoft/mdeberta-v3-base`
+ได้ทุกอย่างเหมือน YOLO: Optuna จูน (lr, batch, weight decay, warmup), Excel (Summary, Confusion, PerClass = TP/FP/FN ต่อ class
+หรือต่อชนิดข้อมูลสำหรับ NER, TrainingHistory, Predictions), MLflow + Model Registry, history, `resume` และ `results` เทียบโมเดล
+ตัวอย่างในตัว: `thai-sentiment` (รีวิว 3 อารมณ์), `thai-ner` (ชื่อ บริษัท สถานที่ วันที่ เงิน), `thai-docs` (เอกสาร 4 ประเภท)
 
 ---
 

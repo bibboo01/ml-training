@@ -8,6 +8,9 @@
     .\run.ps1 fit D:\datasets\leaves s      # dataset outside the project (copied to data\raw)
     .\run.ps1 fit helmet s full accurate    # tuning preset: fast balanced accurate small_data freeze augment custom
     .\run.ps1 fit helmet n full data.task=segment model.params.epochs=200   # extra overrides
+    .\run.ps1 text reviews                  # TEXT / DOCUMENTS (Thai OK): classify texts, NER, document folders
+    .\run.ps1 text thai-ner tiny quick      # sizes tiny small base thai large · samples thai-sentiment thai-ner thai-docs
+    .\run.ps1 find reviews "ส่งไว ของดี"     # predict a sentence, a CSV, a PDF / Word / image, or a folder of them
     .\run.ps1 resume helmet                 # continue a training that stopped (power cut, Ctrl+C, crash)
     .\run.ps1 results helmet                # compare all trained sizes (+ reports\helmet\compare.xlsx)
     .\run.ps1 find helmet D:\images         # predict with the best trained model
@@ -20,6 +23,7 @@
     .\run.ps1 history                       # every prepare / train / predict / clean (+ logs\history.xlsx)
   Setup / tools:
     .\run.ps1 setup-yolo   # install (CPU)          .\run.ps1 setup-gpu   # install (NVIDIA GPU)
+    .\run.ps1 setup-ocr    # + OCR for scanned PDFs / document images (Thai + English)
     .\run.ps1 ui           # MLflow UI http://127.0.0.1:5000
     .\run.ps1 optuna       # Optuna dashboard http://127.0.0.1:8080
   Tabular data:  .\run.ps1 setup | pipeline | compare | train model=svm | test
@@ -38,7 +42,21 @@ $env:MLFLOW_DISABLE_AGENT_HINT = "1"
 if (Test-Path .gpu) { $env:UV_NO_SYNC = "1" }
 $CudaIndex = "https://download.pytorch.org/whl/cu126"
 $Sizes = @("yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x")
-$HelpLines = 28
+$HelpLines = 32
+
+# YOLO + text (HuggingFace) packages, + OCR after setup-ocr; -Gpu = CUDA build of torch
+function Sync-Env([switch]$Gpu) {
+    Remove-Item Env:UV_NO_SYNC -ErrorAction SilentlyContinue
+    $extras = @("--extra", "yolo", "--extra", "nlp")
+    if (Test-Path .ocr) { $extras += @("--extra", "ocr") }
+    uv sync --group dev @extras
+    if ($Gpu) {
+        uv pip install --reinstall torch torchvision --index-url $CudaIndex
+        New-Item .gpu -ItemType File -Force | Out-Null
+        $env:UV_NO_SYNC = "1"
+    }
+    uv run --no-sync python -c "import torch; print('CUDA available:', torch.cuda.is_available(), torch.version.cuda)"
+}
 
 function Need-Uv {
     if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
@@ -121,22 +139,75 @@ function Show-Results([string]$Name) {
     uv run python -m ml_training.compare $Name
 }
 
+# tiny | small | base | thai | large -> text_<size>
+$TextSizes = @("tiny", "small", "base", "thai", "large")
+function Get-TextModel([string]$Size) {
+    if (-not $Size) { return "text_base" }
+    $s = $Size.ToLower() -replace '^text_', ''
+    if ($TextSizes -notcontains $s) { throw "Unknown text model '$Size' (use $($TextSizes -join ', '))" }
+    return "text_$s"
+}
+
+function Get-TextDataset([string]$Ds) {
+    $Ds = $Ds.Trim().Trim('"').TrimEnd('\', '/')
+    if (($Ds -match '[\\/:]') -and (Test-Path $Ds)) {
+        $full = (Resolve-Path $Ds).Path
+        $name = [IO.Path]::GetFileNameWithoutExtension((Split-Path $full -Leaf))
+        return @{ Name = $name; Args = @("data=text", "data.name=$name", "data.path='$($full -replace '\\', '/')'") }
+    }
+    if (Test-Path "configs\data\$Ds.yaml") { return @{ Name = $Ds; Args = @("data=$Ds") } }
+    return @{ Name = $Ds; Args = @("data=text", "data.name=$Ds") }
+}
+
+function Invoke-Text([string]$Ds, [string]$Size, [string]$Mode, [string[]]$Extra) {
+    if (-not $Ds) { throw "Usage: .\run.ps1 text <dataset|file|folder> [tiny|small|base|thai|large] [quick|full] [overrides]" }
+    if (-not $Mode) { $Mode = "full" }
+    $d = Get-TextDataset $Ds
+    $m = Get-TextModel $Size
+    $dataArgs = @($d.Args) + @($Extra | Where-Object { $_ -match '^\+?data\.' })
+    $Extra = @($Extra | Where-Object { $_ -notmatch '^\+?data\.' })
+    $modeArgs = @()
+    if ($Mode -eq "quick") { $modeArgs = @("hpo=none", "model.params.epochs=2") }
+    elseif (-not ($Extra | Where-Object { $_ -match '^hpo\.n_trials=' })) { $modeArgs = @("hpo.n_trials=8") }
+    Say "Text dataset: $($d.Name)   Model: $m   Mode: $Mode"
+    Say "[1/2] Reading texts / documents..."
+    uv run mlt-prepare @dataArgs
+    if ($LASTEXITCODE -ne 0) { throw "Dataset check failed (see the message above)" }
+    uv run mlt-featurize @dataArgs
+    if ($LASTEXITCODE -ne 0) { throw "Dataset split failed (see the message above)" }
+    Say "[2/2] Training $m ..."
+    uv run mlt-train @dataArgs "model=$m" @modeArgs @Extra
+    if ($LASTEXITCODE -ne 0) { throw "Training failed (see the message above)" }
+    Say "  model : models\$($d.Name)\$m\model" "Green"
+    Say "  report: reports\$($d.Name)\$m\report.xlsx" "Green"
+    $script:LastReport = "reports\$($d.Name)\$m\report.xlsx"
+}
+
 function Invoke-Find([string]$Ds, [string]$InputPath, [string]$Size, [string[]]$Extra) {
     if (-not $Ds -or -not $InputPath) { throw "Usage: .\run.ps1 find <dataset> <image|folder|video|url> [n|s|m|l|x]" }
     $d = Get-Dataset $Ds
-    if ($Size) { $m = (Get-Sizes $Size)[0] }
+    if ($Size -and ($Size -match '^(text_)?(tiny|small|base|thai|large)$')) { $m = Get-TextModel $Size }
+    elseif ($Size) { $m = (Get-Sizes $Size)[0] }
     else {
         $m = (uv run python -m ml_training.compare $d.Name --best | Select-Object -Last 1)
-        if ($LASTEXITCODE -ne 0 -or -not $m) { throw "No trained model for '$($d.Name)'. Train first: .\run.ps1 fit $Ds" }
+        if ($LASTEXITCODE -ne 0 -or -not $m) { throw "No trained model for '$($d.Name)'. Train first: .\run.ps1 fit $Ds  (or .\run.ps1 text $Ds)" }
     }
     $src = $InputPath.Trim().Trim('"')
-    if ($src -notmatch '://') { $src = (Resolve-Path $src).Path -replace '\\', '/' }
+    $what = "+input='$src'"
+    if ($src -notmatch '://') {
+        if (Test-Path $src) { $src = (Resolve-Path $src).Path -replace '\\', '/'; $what = "+input='$src'" }
+        elseif ($m -like "text_*") { $what = "+text='$($src -replace "'", "’")'" }  # a sentence
+        else { throw "Not found: $src" }
+    }
     $dataArgs = $d.Args
     Say "Predicting with $m on $src"
-    uv run mlt-predict @dataArgs "model=$m" "+input='$src'" @Extra
+    uv run mlt-predict @dataArgs "model=$m" $what @Extra
     $out = "reports\$($d.Name)\$m\predict"
     if ($LASTEXITCODE -eq 0 -and (Test-Path $out)) {
-        Say "Annotated files + detections.csv (one row per prediction): $out" "Green"
+        if ($m -like "text_*") {
+            Say "Results (one row per text / entity): $out\predictions.csv" "Green"
+            Import-Csv "$out\predictions.csv" | Select-Object -First 10 | Format-Table -AutoSize | Out-String | Write-Host
+        } else { Say "Annotated files + detections.csv (one row per prediction): $out" "Green" }
         Invoke-Item $out
     }
 }
@@ -225,6 +296,16 @@ function Select-Dataset([switch]$Trained) {
     return $samples[$j]
 }
 
+function Select-TextDataset {
+    $names = @(Get-ChildItem data\raw -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer -or ".csv", ".xlsx", ".jsonl", ".json", ".tsv", ".conll" -contains $_.Extension } | ForEach-Object Name)
+    Say "`nText dataset (folder or file in data\raw):"
+    $opts = $names + @("Type a file / folder path...", "Sample: thai-sentiment  (classify reviews)", "Sample: thai-ner        (pull out names, companies, dates, amounts)", "Sample: thai-docs       (invoice / receipt / contract / quotation documents)")
+    $i = Read-Choice "Choose" $opts
+    if ($i -lt $names.Count) { return "data\raw\" + $names[$i] }
+    if ($i -eq $names.Count) { return (Read-Host "File or folder path (you can drag it here)").Trim('"') }
+    return @("thai-sentiment", "thai-ner", "thai-docs")[$i - $names.Count - 1]
+}
+
 # presets = configs\tune\*.yaml (built-in ones first, then yours)
 function Get-Presets {
     $rows = @(uv run python -m ml_training.tune_menu names | Where-Object { $_ -match '\|' })
@@ -265,9 +346,10 @@ function Show-Menu {
     while ($true) {
         Say "`n========== ML Training =========="
         $u = Get-Unfinished
-        if ($u) { Say ("{0} training(s) stopped before the end - choose 2 to continue: {1}" -f $u.Count, (($u | ForEach-Object { ($_ -split '\|')[0..1] -join ' ' }) -join ', ')) "Yellow" }
+        if ($u) { Say ("{0} training(s) stopped before the end - choose 3 to continue: {1}" -f $u.Count, (($u | ForEach-Object { ($_ -split '\|')[0..1] -join ' ' }) -join ', ')) "Yellow" }
         $i = Read-Choice "Choose" @(
             "Train YOLO (detect / segment / classify / pose / obb)",
+            "Train TEXT / DOCUMENTS (classify texts, pull out info = NER, document folders; Thai OK)",
             "Resume a training that stopped (power cut / Ctrl+C / crash)",
             "Predict images / video with a trained model",
             "Compare trained YOLO models",
@@ -298,6 +380,21 @@ function Show-Menu {
                     if ($script:LastReport -and (Test-Path $script:LastReport) -and ((Read-Host "Open the Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
                 }
                 1 {
+                    $ds = Select-TextDataset
+                    Say "`nModel (all read Thai):"
+                    $k = Read-Choice "Choose" @(
+                        "tiny   trained from scratch, no download - only to try the pipeline",
+                        "small  multilingual DistilBERT - fast, OK on CPU",
+                        "base   XLM-RoBERTa base - strong default (GPU recommended)",
+                        "thai   WangchanBERTa - best for Thai-only text",
+                        "large  XLM-RoBERTa large - most accurate (GPU 12 GB+)") 3
+                    Say "`nTraining mode:"
+                    $mode = @("quick", "full")[(Read-Choice "Choose" @("Quick test (no tuning, 2 epochs)", "Full (Optuna 8 trials + final training)"))]
+                    $script:LastReport = $null
+                    Invoke-Text $ds $TextSizes[$k] $mode @()
+                    if ($script:LastReport -and (Test-Path $script:LastReport) -and ((Read-Host "Open the Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
+                }
+                2 {
                     $u = Get-Unfinished
                     if (-not $u) { Say "Nothing to resume - every training finished." "Green"; continue }
                     Say "`nUnfinished trainings:"
@@ -308,26 +405,26 @@ function Show-Menu {
                     $x = "reports\$($f[0])\$($f[1])\report.xlsx"
                     if ($LASTEXITCODE -eq 0 -and (Test-Path $x) -and ((Read-Host "Open the Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $x }
                 }
-                2 {
+                3 {
                     $ds = Select-Dataset -Trained
                     $src = Read-Host "Image, folder or video path (drag it here) or URL"
                     Invoke-Find $ds $src "" @()
                 }
-                3 { $ds = Select-Dataset -Trained; Show-Results $ds; $x = "reports\$ds\compare.xlsx"; if ((Test-Path $x) -and ((Read-Host "Open compare.xlsx? (y/n) [y]") -ne "n")) { Invoke-Item $x } }
-                4 {
+                4 { $ds = Select-Dataset -Trained; Show-Results $ds; $x = "reports\$ds\compare.xlsx"; if ((Test-Path $x) -and ((Read-Host "Open compare.xlsx? (y/n) [y]") -ne "n")) { Invoke-Item $x } }
+                5 {
                     $ds = Select-Dataset -Trained
                     $n = Read-Host "How many test images to analyse? [100]"
                     $script:LastReport = $null
                     Invoke-Explain $ds "" $n @()
                     if ($script:LastReport -and ((Read-Host "Open the XAI Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
                 }
-                5 { Show-TuningMenu }
-                6 { Start-Process "http://127.0.0.1:5000"; uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db" --port 5000 }
-                7 {
+                6 { Show-TuningMenu }
+                7 { Start-Process "http://127.0.0.1:5000"; uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db" --port 5000 }
+                8 {
                     $g = Read-Choice "Install for" @("CPU only", "NVIDIA GPU (CUDA)")
                     if ($g -eq 0) { & $PSCommandPath setup-yolo } else { & $PSCommandPath setup-gpu }
                 }
-                8 {
+                9 {
                     $names = @(@("data\processed", "models", "reports") | ForEach-Object { Get-ChildItem $_ -Directory -ErrorAction SilentlyContinue } | ForEach-Object Name | Where-Object { "pretrained", "runs", "figures" -notcontains $_ } | Sort-Object -Unique)
                     Say "`nClean what?"
                     $opts = $names + @("ALL datasets (every result + MLflow / Optuna history)")
@@ -336,13 +433,13 @@ function Show-Menu {
                     $raw = (Read-Host "Also delete the raw dataset in data\raw? (y/n) [n]") -eq "y"
                     if ($raw) { Invoke-Clean @($target, "raw") } else { Invoke-Clean @($target) }
                 }
-                9 {
+                10 {
                     uv run python -m ml_training.lineage 30 --excel
                     if ((Test-Path logs\history.xlsx) -and ((Read-Host "Open history.xlsx? (y/n) [n]") -eq "y")) { Invoke-Item logs\history.xlsx }
                 }
-                10 { uv run dvc repro; uv run dvc metrics show }
-                11 { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
-                12 { return }
+                11 { uv run dvc repro; uv run dvc metrics show }
+                12 { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
+                13 { return }
             }
         } catch { Say "Error: $($_.Exception.Message)" "Red" }
     }
@@ -368,6 +465,20 @@ switch ($Task) {
         break
     }
     "results" { Show-Results $Rest[0] }
+    "text" {
+        # text <dataset> [size] [quick|full] [preset] [key=value] in any order after the dataset
+        $a = @($Rest); $size = $null; $mode = $null; $extra = @()
+        for ($i = 1; $i -lt $a.Count; $i++) {
+            $t = $a[$i]
+            if ($t -match '=') { $extra += $t }
+            elseif ("quick", "full" -contains $t) { $mode = $t }
+            elseif (-not $size) { $size = $t }
+            else { throw "Unknown argument '$t'" }
+        }
+        Invoke-Text $a[0] $size $mode $extra
+        if ($script:LastReport -and (Test-Path $script:LastReport)) { Invoke-Item $script:LastReport }
+        break
+    }
     "resume" { Invoke-Resume $Rest[0] $Rest[1]; if ($script:LastReport) { Say "Report: $($script:LastReport)" } }
     { $_ -in "explain", "xai" } {
         # explain <dataset> [size] [images] [key=value ...]
@@ -399,15 +510,9 @@ switch ($Task) {
         Write-Host "Ready. Next: .\run.ps1 pipeline" -ForegroundColor Green
     }
     "setup-dl" { Need-Uv; uv sync --group dev --extra dl }
-    "setup-yolo" { Need-Uv; uv sync --group dev --extra yolo; Remove-Item .gpu -ErrorAction SilentlyContinue }
-    "setup-gpu" {
-        Need-Uv
-        Remove-Item Env:UV_NO_SYNC -ErrorAction SilentlyContinue
-        uv sync --group dev --extra yolo
-        uv pip install --reinstall torch torchvision --index-url $CudaIndex
-        New-Item .gpu -ItemType File -Force | Out-Null
-        uv run --no-sync python -c "import torch; print('CUDA available:', torch.cuda.is_available(), torch.version.cuda)"
-    }
+    "setup-yolo" { Need-Uv; Remove-Item .gpu -ErrorAction SilentlyContinue; Sync-Env }
+    "setup-gpu" { Need-Uv; Sync-Env -Gpu }
+    "setup-ocr" { Need-Uv; New-Item .ocr -ItemType File -Force | Out-Null; Sync-Env -Gpu:(Test-Path .gpu) }
     "yolo"     { uv run dvc repro pipelines/yolo/dvc.yaml @Rest; uv run dvc metrics show }
     "yolo-all" {
         if (@($Rest).Count -gt 0 -and $Rest[0] -notmatch '=') {   # .\run.ps1 yolo-all helmet [quick|full]

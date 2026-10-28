@@ -108,8 +108,11 @@ def predict_yolo(cfg: DictConfig) -> Path:
 
 @hydra.main(version_base="1.3", config_path=CONFIG_DIR, config_name="config")
 def main(cfg: DictConfig) -> None:
-    if cfg.model.backend == "ultralytics":
-        predict_yolo(cfg)
+    from ml_training.backends import model_backend
+
+    backend = model_backend(cfg)  # YOLO and other non-tabular model families
+    if backend:
+        backend.predict(cfg)
         return
     root = Path(cfg.paths.root)
     inp = Path(cfg.input)

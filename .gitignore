@@ -43,3 +43,5 @@ desktop.ini
 
 # History viewer export (logs/history.jsonl itself is worth committing)
 /logs/*.xlsx
+# Local OCR marker created by run.ps1 setup-ocr
+.ocr

@@ -1,0 +1,6 @@
+# Built-in sample, generated on first use (no download): ner: pull names, companies, places, dates and amounts out of Thai sentences
+defaults:
+  - text
+  - _self_
+name: thai-ner
+sample: thai-ner

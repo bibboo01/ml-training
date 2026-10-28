@@ -1,0 +1,21 @@
+# Tiny BERT trained from scratch with its own tokenizer – no download, runs in a minute on CPU.
+# For trying the pipeline / tests only; real projects use text_small / text_base / text_thai.
+name: text_tiny
+backend: transformers
+pretrained: null
+scratch: {hidden: 128, layers: 2, heads: 2, vocab_size: 4000}
+hpo_epochs: 3
+params:
+  epochs: 15
+  batch_size: 16
+  lr: 1.0e-3
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  grad_accum: 1
+  max_length: 128
+  patience: 4
+  fp16: true
+  label_smoothing: 0.0
+search_space:
+  lr: {type: float, low: 1.0e-4, high: 3.0e-3, log: true}
+  batch_size: {type: categorical, choices: [8, 16, 32]}

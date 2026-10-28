@@ -1,0 +1,23 @@
+# WangchanBERTa (106M) – trained on Thai text; usually best for Thai-only data
+# Downloaded once from HuggingFace into models/pretrained/hf. Any HF model id works:
+#   .\run.ps1 text reviews base model.pretrained=microsoft/mdeberta-v3-base
+name: text_thai
+backend: transformers
+pretrained: airesearch/wangchanberta-base-att-spm-uncased
+hpo_epochs: 2
+params:
+  epochs: 5
+  batch_size: 16
+  lr: 3.0e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  grad_accum: 1
+  max_length: 256          # tokens per text; longer documents are cut (512 max for these models)
+  patience: 2              # stop after N epochs without a better val F1
+  fp16: true               # mixed precision on NVIDIA GPUs (ignored on CPU)
+  label_smoothing: 0.0
+search_space:
+  lr: {type: float, low: 1.0e-5, high: 1.0e-4, log: true}
+  weight_decay: {type: float, low: 0.0, high: 0.1}
+  warmup_ratio: {type: float, low: 0.0, high: 0.2}
+  batch_size: {type: categorical, choices: [8, 16, 32]}

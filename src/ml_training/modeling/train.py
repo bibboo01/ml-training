@@ -43,10 +43,11 @@ from ml_training.utils import (
 
 
 def train(cfg: DictConfig) -> dict[str, float]:
-    if cfg.model.backend == "ultralytics":  # image object detection (YOLO)
-        from ml_training.modeling.yolo import train_yolo
+    from ml_training.backends import model_backend
 
-        return train_yolo(cfg)
+    backend = model_backend(cfg)  # YOLO and other non-tabular model families
+    if backend:
+        return backend.train(cfg)
 
     set_seed(cfg.seed)
     X_tr, y_tr, X_val, y_val, X_te, y_te, meta = load_splits(cfg.paths.processed)

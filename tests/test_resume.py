@@ -7,7 +7,8 @@ from omegaconf import OmegaConf
 
 from ml_training import resume
 from ml_training.hpo import run_study
-from ml_training.modeling.yolo import unfinished_checkpoint, write_state
+from ml_training.modeling.yolo import unfinished_checkpoint
+from ml_training.runstate import write_state
 
 
 def test_unfinished_checkpoint(tmp_path):

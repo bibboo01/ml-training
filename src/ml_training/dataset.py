@@ -14,7 +14,7 @@ import pandas as pd
 from omegaconf import DictConfig
 
 from ml_training import lineage
-from ml_training.detection_data import is_yolo, prepare
+from ml_training.backends import data_backend
 from ml_training.utils import CONFIG_DIR, ensure_dir, log
 
 
@@ -53,8 +53,9 @@ def load_raw(cfg: DictConfig) -> pd.DataFrame:
 
 
 def run(cfg: DictConfig) -> Path:
-    if is_yolo(cfg):  # image data for YOLO (detect, segment, classify, pose, obb)
-        return prepare(cfg)
+    backend = data_backend(cfg)  # images (YOLO) and other non-tabular data
+    if backend:
+        return backend.prepare(cfg)
     df = load_raw(cfg)
     if cfg.data.target not in df.columns:
         raise KeyError(

@@ -35,6 +35,7 @@ from ml_training.detection_data import configure_ultralytics
 from ml_training.hpo import param_importances, run_study, suggest_params, trials_dataframe
 from ml_training.metrics import EvalResult
 from ml_training.reporting.excel import write_report
+from ml_training.runstate import STATE_FILE, hydra_overrides, write_state
 from ml_training.tracking import log_params, setup_mlflow
 from ml_training.utils import ensure_dir, flatten_dict, log, read_json, set_seed, write_json
 
@@ -289,9 +290,6 @@ def _train_kwargs(
     return {k: v for k, v in kw.items() if v is not None}
 
 
-STATE_FILE = "run_state.json"
-
-
 def unfinished_checkpoint(train_dir: Path) -> Path | None:
     """last.pt of a training that stopped before the end (Ultralytics strips the optimizer from
     last.pt when a training finishes, so an optimizer still inside = can be resumed)."""
@@ -307,25 +305,6 @@ def unfinished_checkpoint(train_dir: Path) -> Path | None:
         return None
     ok = isinstance(ckpt, dict) and ckpt.get("optimizer") is not None
     return last if ok and ckpt.get("epoch", -1) >= 0 else None
-
-
-def _hydra_overrides() -> list[str]:
-    try:
-        from hydra.core.hydra_config import HydraConfig
-
-        task = HydraConfig.get().overrides.task
-    except Exception:  # noqa: BLE001 - called outside a Hydra app (tests)
-        return []
-    return [o for o in task if not o.lstrip("+").startswith("resume=")]
-
-
-def write_state(runs_dir: Path, **fields: Any) -> dict[str, Any]:
-    """models/<dataset>/<model>/run_state.json – what `resume` needs to continue a training."""
-    path = Path(runs_dir) / STATE_FILE
-    state = read_json(path) if path.exists() else {}
-    state.update(fields, updated=datetime.now().isoformat(timespec="seconds"))
-    write_json(state, path)
-    return state
 
 
 def train_yolo(cfg: DictConfig) -> dict[str, float]:
@@ -371,7 +350,7 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
         log.info("Resume: %s", how)
     else:
         write_state(runs_dir, status="running", stage="start", dataset=cfg.data.name,
-                    model=cfg.model.name, task=task, tune=tune_name, overrides=_hydra_overrides(),
+                    model=cfg.model.name, task=task, tune=tune_name, overrides=hydra_overrides(),
                     started=datetime.now().isoformat(timespec="seconds"), resumes=0)  # fmt: skip
 
     experiment_id = setup_mlflow(cfg)
