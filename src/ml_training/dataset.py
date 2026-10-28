@@ -15,6 +15,7 @@ from omegaconf import DictConfig
 
 from ml_training import lineage
 from ml_training.backends import data_backend
+from ml_training.friendly import friendly_errors
 from ml_training.utils import CONFIG_DIR, ensure_dir, log
 
 
@@ -64,7 +65,8 @@ def run(cfg: DictConfig) -> Path:
     df = load_raw(cfg)
     if cfg.data.target not in df.columns:
         raise KeyError(
-            f"Target column {cfg.data.target!r} not found. Columns: {list(df.columns)[:20]}..."
+            f"ไม่พบคอลัมน์ target '{cfg.data.target}' – คอลัมน์ที่มี: "
+            + ", ".join(map(str, df.columns[:40]))
         )
     out = ensure_dir(cfg.paths.raw) / f"{cfg.data.name}.csv"
     df.to_csv(out, index=False)
@@ -73,6 +75,7 @@ def run(cfg: DictConfig) -> Path:
 
 
 @hydra.main(version_base="1.3", config_path=CONFIG_DIR, config_name="config")
+@friendly_errors
 def main(cfg: DictConfig) -> None:
     out = run(cfg)
     lineage.record("prepare", lineage.history_path(cfg), dataset=cfg.data.name, output=str(out))

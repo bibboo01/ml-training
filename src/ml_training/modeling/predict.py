@@ -20,6 +20,7 @@ import pandas as pd
 from omegaconf import DictConfig
 
 from ml_training import lineage
+from ml_training.friendly import friendly_errors
 from ml_training.utils import CONFIG_DIR, log, sqlite_uri
 
 
@@ -108,6 +109,7 @@ def predict_yolo(cfg: DictConfig) -> Path:
 
 
 @hydra.main(version_base="1.3", config_path=CONFIG_DIR, config_name="config")
+@friendly_errors
 def main(cfg: DictConfig) -> None:
     from ml_training.backends import model_backend
 

@@ -26,6 +26,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from ml_training import lineage
 from ml_training.features import load_splits
+from ml_training.friendly import friendly_errors
 from ml_training.hpo import param_importances, run_study, suggest_params, trials_dataframe
 from ml_training.metrics import evaluate, predict_with_threshold
 from ml_training.modeling.factory import build_model
@@ -262,6 +263,7 @@ def train(cfg: DictConfig) -> dict[str, float]:
 
 
 @hydra.main(version_base="1.3", config_path=CONFIG_DIR, config_name="config")
+@friendly_errors
 def main(cfg: DictConfig) -> float:
     summary = train(cfg)
     # Returning a float lets Hydra sweepers (e.g. hydra-optuna-sweeper) optimise across runs.

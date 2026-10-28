@@ -1,5 +1,7 @@
-<#
+﻿<#
   Windows helper for ml-training.  Easiest: double-click run.bat (or type .\run.ps1) for a menu.
+  ง่ายที่สุด: ดับเบิลคลิก run.bat แล้วเลือก 1 "เทรนโมเดลใหม่" ลากโฟลเดอร์ / ไฟล์ข้อมูลมาวาง ระบบเลือกงานและโมเดลให้เอง
+    .\run.ps1 auto D:\data\helmet          # same from the command line: look at the data, pick the task, train
   YOLO, every task: detect / segment / classify / pose / obb (read from the dataset automatically)
   dataset = folder in data\raw, a full path, or a sample: coco8 coco8-seg coco8-pose dota8 mnist160
     .\run.ps1 fit helmet                    # yolo11n, full (Optuna tuning + 100 epochs)
@@ -41,13 +43,19 @@ param(
 )
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
+# Thai text in the console (Windows PowerShell 5.1 defaults to the ANSI code page)
+try { [Console]::OutputEncoding = [Text.Encoding]::UTF8; [Console]::InputEncoding = [Text.Encoding]::UTF8 } catch { }
+$OutputEncoding = [Text.Encoding]::UTF8
+# menu language: th (default) | en  - change in the menu: More tools > Language
+$Lang = "th"; if (Test-Path .lang) { $Lang = (Get-Content .lang -TotalCount 1).Trim() }
+function T([string]$Th, [string]$En) { if ($script:Lang -eq "en") { return $En } return $Th }
 $env:PYTHONUTF8 = "1"
 $env:MLFLOW_DISABLE_AGENT_HINT = "1"
 # After setup-gpu, stop `uv run` from swapping the CUDA torch back to the CPU build.
 if (Test-Path .gpu) { $env:UV_NO_SYNC = "1" }
 $CudaIndex = "https://download.pytorch.org/whl/cu126"
 $Sizes = @("yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x")
-$HelpLines = 37
+$HelpLines = 39
 
 # YOLO + text (HuggingFace) + vision (timm) + LightGBM / XGBoost packages, + OCR after setup-ocr; -Gpu = CUDA build of torch
 function Sync-Env([switch]$Gpu) {
@@ -391,52 +399,78 @@ function Read-Choice([string]$Prompt, [string[]]$Options, [int]$Default = 1) {
         if (-not $a) { return $Default - 1 }
         $n = 0
         if ([int]::TryParse($a, [ref]$n) -and $n -ge 1 -and $n -le $Options.Count) { return $n - 1 }
-        Say "Please type a number 1-$($Options.Count)" "Yellow"
+        Say (T "พิมพ์ตัวเลข 1-$($Options.Count)" "Please type a number 1-$($Options.Count)") "Yellow"
     }
 }
 
+function Ask-Yes([string]$Question, [bool]$Default = $true) {
+    $d = @("n", "y")[[int]$Default]
+    $a = Read-Host "$Question (y/n) [$d]"
+    if (-not $a) { return $Default }
+    return $a.Trim().ToLower() -in @("y", "yes", "ใช่")
+}
+
+function Open-Report {
+    if ($script:LastReport -and (Test-Path $script:LastReport) -and (Ask-Yes (T "เปิดรายงาน Excel เลยไหม" "Open the Excel report?"))) { Invoke-Item $script:LastReport }
+}
+
+function Get-TrainedNames {
+    @(Get-ChildItem models -Directory -ErrorAction SilentlyContinue | Where-Object { "pretrained", "runs" -notcontains $_.Name } |
+        Where-Object { (Get-ChildItem $_.FullName -File | Where-Object { ".pt", ".joblib" -contains $_.Extension }) -or (Test-Path "$($_.FullName)\*\model") } |
+        ForEach-Object Name)
+}
+
 function Select-Dataset([switch]$Trained) {
-    if ($Trained) { $names = @(Get-ChildItem models -Directory -ErrorAction SilentlyContinue | Where-Object { (Get-ChildItem $_.FullName -File | Where-Object { ".pt", ".joblib" -contains $_.Extension }) -or (Test-Path "$($_.FullName)\*\model") } | ForEach-Object Name) }
+    if ($Trained) { $names = Get-TrainedNames }
     else { $names = @(Get-ChildItem data\raw -Directory -ErrorAction SilentlyContinue | ForEach-Object Name) }
     $names = @($names | Where-Object { "pretrained", "runs" -notcontains $_ })
-    Say "`nDataset:"
-    $opts = $names + @("Type a folder path...")
-    if (-not $Trained) { $opts += "Sample dataset (auto-download, to try each task)..." }
-    $i = Read-Choice "Choose" $opts
+    if ($Trained -and -not $names) { throw (T "ยังไม่มีโมเดลที่เทรนแล้ว - เทรนก่อนจากเมนู 1" "No trained model yet - train one first (menu 1)") }
+    Say (T "`nชุดข้อมูล:" "`nDataset:")
+    $opts = $names + @((T "พิมพ์ / ลากโฟลเดอร์มาวาง..." "Type a folder path..."))
+    if (-not $Trained) { $opts += (T "ชุดตัวอย่าง (ดาวน์โหลดอัตโนมัติ ไว้ลองแต่ละงาน)..." "Sample dataset (auto-download, to try each task)...") }
+    $i = Read-Choice (T "เลือก" "Choose") $opts
     if ($i -lt $names.Count) { return $names[$i] }
-    if ($i -eq $names.Count) { return (Read-Host "Folder path (you can drag the folder here)").Trim('"') }
+    if ($i -eq $names.Count) { return (Read-Host (T "ที่อยู่โฟลเดอร์ (ลากโฟลเดอร์มาวางได้)" "Folder path (you can drag the folder here)")).Trim('"') }
     $samples = @("coco8", "coco8-seg", "coco8-pose", "dota8", "mnist160")
-    $j = Read-Choice "Sample" @("coco8       detect", "coco8-seg   segment", "coco8-pose  pose", "dota8       obb (rotated boxes)", "mnist160    classify")
+    $j = Read-Choice (T "ชุดตัวอย่าง" "Sample") @("coco8       detect", "coco8-seg   segment", "coco8-pose  pose", "dota8       obb", "mnist160    classify")
     return $samples[$j]
 }
 
 function Select-TextDataset {
     $names = @(Get-ChildItem data\raw -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer -or ".csv", ".xlsx", ".jsonl", ".json", ".tsv", ".conll" -contains $_.Extension } | ForEach-Object Name)
-    Say "`nText dataset (folder or file in data\raw):"
-    $opts = $names + @("Type a file / folder path...", "Sample: thai-sentiment  (classify reviews)", "Sample: thai-ner        (pull out names, companies, dates, amounts)", "Sample: thai-docs       (invoice / receipt / contract / quotation documents)")
-    $i = Read-Choice "Choose" $opts
+    Say (T "`nข้อมูลข้อความ (โฟลเดอร์หรือไฟล์ใน data\raw):" "`nText dataset (folder or file in data\raw):")
+    $opts = $names + @((T "พิมพ์ / ลากไฟล์หรือโฟลเดอร์มาวาง..." "Type a file / folder path..."),
+        (T "ตัวอย่าง: thai-sentiment  (จัดหมวดรีวิว บวก / ลบ / กลาง)" "Sample: thai-sentiment  (classify reviews)"),
+        (T "ตัวอย่าง: thai-ner        (ดึงชื่อคน บริษัท วันที่ จำนวนเงิน)" "Sample: thai-ner        (names, companies, dates, amounts)"),
+        (T "ตัวอย่าง: thai-docs       (แยกใบแจ้งหนี้ / ใบเสร็จ / สัญญา / ใบเสนอราคา)" "Sample: thai-docs       (invoice / receipt / contract / quotation)"))
+    $i = Read-Choice (T "เลือก" "Choose") $opts
     if ($i -lt $names.Count) { return "data\raw\" + $names[$i] }
-    if ($i -eq $names.Count) { return (Read-Host "File or folder path (you can drag it here)").Trim('"') }
+    if ($i -eq $names.Count) { return (Read-Host (T "ที่อยู่ไฟล์หรือโฟลเดอร์ (ลากมาวางได้)" "File or folder path (you can drag it here)")).Trim('"') }
     return @("thai-sentiment", "thai-ner", "thai-docs")[$i - $names.Count - 1]
 }
 
 function Select-TableDataset {
     $names = @(Get-ChildItem data\external, data\raw -File -ErrorAction SilentlyContinue | Where-Object { ".csv", ".xlsx", ".xls", ".parquet" -contains $_.Extension } | ForEach-Object FullName)
-    Say "`nTable (CSV / Excel in data\external or data\raw):"
-    $opts = @($names | ForEach-Object { Resolve-Path $_ -Relative }) + @("Type a file path...", "Sample: house-prices  (predict a price = regression)", "Sample: shop-sales    (forecast daily sales of 3 shops)", "Sample: breast_cancer (classify, 2 classes)")
-    $i = Read-Choice "Choose" $opts
+    Say (T "`nตาราง (CSV / Excel ใน data\external หรือ data\raw):" "`nTable (CSV / Excel in data\external or data\raw):")
+    $opts = @($names | ForEach-Object { Resolve-Path $_ -Relative }) + @((T "พิมพ์ / ลากไฟล์มาวาง..." "Type a file path..."),
+        (T "ตัวอย่าง: house-prices  (ทายราคาบ้าน = ทายตัวเลข)" "Sample: house-prices  (predict a price = regression)"),
+        (T "ตัวอย่าง: shop-sales    (พยากรณ์ยอดขายรายวัน 3 สาขา)" "Sample: shop-sales    (forecast daily sales of 3 shops)"),
+        (T "ตัวอย่าง: breast_cancer (จัดหมวด 2 กลุ่ม)" "Sample: breast_cancer (classify, 2 classes)"))
+    $i = Read-Choice (T "เลือก" "Choose") $opts
     if ($i -lt $names.Count) { return $names[$i] }
-    if ($i -eq $names.Count) { return (Read-Host "File path (you can drag it here)").Trim('"') }
+    if ($i -eq $names.Count) { return (Read-Host (T "ที่อยู่ไฟล์ (ลากมาวางได้)" "File path (you can drag it here)")).Trim('"') }
     return @("house-prices", "shop-sales", "breast_cancer")[$i - $names.Count - 1]
 }
 
 function Select-ImageDataset {
     $names = @(Get-ChildItem data\raw -Directory -ErrorAction SilentlyContinue | ForEach-Object Name)
-    Say "`nImage dataset (folder in data\raw: one sub-folder per class, or images\ + masks\):"
-    $opts = $names + @("Type a folder path...", "Sample: shapes      (classify circle / square / triangle)", "Sample: shapes-seg  (pixel segmentation of circles / squares)")
-    $i = Read-Choice "Choose" $opts
+    Say (T "`nชุดภาพ (โฟลเดอร์ใน data\raw: โฟลเดอร์ย่อยตามหมวด หรือ images\ + masks\):" "`nImage dataset (folder in data\raw: one sub-folder per class, or images\ + masks\):")
+    $opts = $names + @((T "พิมพ์ / ลากโฟลเดอร์มาวาง..." "Type a folder path..."),
+        (T "ตัวอย่าง: shapes      (จัดหมวด วงกลม / สี่เหลี่ยม / สามเหลี่ยม)" "Sample: shapes      (classify circle / square / triangle)"),
+        (T "ตัวอย่าง: shapes-seg  (แยกทุกพิกเซล วงกลม / สี่เหลี่ยม)" "Sample: shapes-seg  (pixel segmentation of circles / squares)"))
+    $i = Read-Choice (T "เลือก" "Choose") $opts
     if ($i -lt $names.Count) { return $names[$i] }
-    if ($i -eq $names.Count) { return (Read-Host "Folder path (you can drag it here)").Trim('"') }
+    if ($i -eq $names.Count) { return (Read-Host (T "ที่อยู่โฟลเดอร์ (ลากมาวางได้)" "Folder path (you can drag it here)")).Trim('"') }
     return @("shapes", "shapes-seg")[$i - $names.Count - 1]
 }
 
@@ -449,18 +483,18 @@ function Get-Presets {
 
 function Select-Preset {
     $p = @(Get-Presets)
-    $i = Read-Choice "Choose" @($p | ForEach-Object { "{0,-12}{1}" -f $_.Name, $_.About })
+    $i = Read-Choice (T "เลือก" "Choose") @($p | ForEach-Object { "{0,-12}{1}" -f $_.Name, $_.About })
     return $p[$i].Name
 }
 
 function Show-TuningMenu {
     while ($true) {
-        Say "`n---------- Tuning settings ----------"
-        $k = Read-Choice "Choose" @(
-            "Show all presets (epochs, trials, freeze, how many settings are tuned)",
-            "Create my preset (asks only the common settings)",
-            "Edit a preset in Notepad (checked when you close it)",
-            "Back")
+        Say (T "`n---------- ตั้งค่าการจูน (YOLO) ----------" "`n---------- Tuning settings ----------")
+        $k = Read-Choice (T "เลือก" "Choose") @(
+            (T "ดู preset ทั้งหมด (epochs, จำนวนรอบจูน, freeze, ค่าที่จูน)" "Show all presets (epochs, trials, freeze, how many settings are tuned)"),
+            (T "สร้าง preset ของฉัน (ถามเฉพาะค่าที่ใช้บ่อย)" "Create my preset (asks only the common settings)"),
+            (T "แก้ preset ใน Notepad (ตรวจให้เมื่อปิด)" "Edit a preset in Notepad (checked when you close it)"),
+            (T "กลับ" "Back"))
         switch ($k) {
             0 { uv run python -m ml_training.tune_menu list }
             1 { uv run python -m ml_training.tune_menu create }
@@ -468,165 +502,313 @@ function Show-TuningMenu {
                 $name = Select-Preset
                 Start-Process notepad "configs\tune\$name.yaml" -Wait
                 uv run python -m ml_training.tune_menu check $name
-                if ($LASTEXITCODE -ne 0) { Say "The file has a problem (see above) - open it again and fix it." "Red" }
-                else { Say "Preset '$name' is OK." "Green" }
+                if ($LASTEXITCODE -ne 0) { Say (T "ไฟล์มีปัญหา (ดูด้านบน) - เปิดแก้อีกครั้ง" "The file has a problem (see above) - open it again and fix it.") "Red" }
+                else { Say (T "Preset '$name' ใช้ได้" "Preset '$name' is OK.") "Green" }
             }
             3 { return }
         }
     }
 }
 
+# ----------------------------------------------------------------------------- automatic training
+# sample name -> what the inspector would say (samples are generated / downloaded on first use)
+$SampleKinds = [ordered]@{
+    "shapes"         = @("vision", "classify", "ภาพ: จัดหมวดรูปทรง (วงกลม / สี่เหลี่ยม / สามเหลี่ยม)", "images: classify shapes")
+    "shapes-seg"     = @("vision", "semantic", "ภาพ: แยกทุกพิกเซล (segmentation)", "images: pixel segmentation")
+    "coco8"          = @("yolo", "detect", "ภาพ: ตรวจจับวัตถุ YOLO (8 ภาพ ดาวน์โหลดเล็กน้อย)", "images: YOLO object detection (small download)")
+    "thai-sentiment" = @("text", "classify", "ข้อความ: จัดหมวดรีวิวภาษาไทย", "text: classify Thai reviews")
+    "thai-docs"      = @("text", "classify", "เอกสาร: แยกประเภทเอกสาร 4 แบบ", "documents: 4 document types")
+    "house-prices"   = @("table", "regress", "ตาราง: ทายราคาบ้าน (ทายตัวเลข)", "table: predict house prices")
+    "shop-sales"     = @("table", "forecast", "ตาราง: พยากรณ์ยอดขายรายวัน", "table: forecast daily sales")
+}
+
+function Invoke-Wizard([string]$Given) {
+    Say (T "`n========== เทรนโมเดลใหม่แบบอัตโนมัติ ==========" "`n========== Train a new model automatically ==========")
+    if ($Given) { $ans = $Given.Trim().Trim('"') } else {
+    Say (T "ลากโฟลเดอร์หรือไฟล์ข้อมูลมาวางในหน้าต่างนี้แล้วกด Enter  หรือพิมพ์หมายเลขด้านล่าง" "Drag a data folder or file into this window and press Enter, or type a number below") "White"
+    $have = @(Get-ChildItem data\raw, data\external -ErrorAction SilentlyContinue | Where-Object { ($_.PSIsContainer -and $_.Name -notmatch '^\.') -or ".csv", ".xlsx", ".xls", ".parquet", ".jsonl" -contains $_.Extension } | Sort-Object Name)
+    $have = @($have | Where-Object { -not $SampleKinds.Contains($_.BaseName) })
+    $opts = @($have | ForEach-Object { (T "ข้อมูลของฉัน: " "my data: ") + (Resolve-Path $_.FullName -Relative) })
+    $opts += @($SampleKinds.Keys | ForEach-Object { (T "ตัวอย่าง: " "sample: ") + ("{0,-15}" -f $_) + (T $SampleKinds[$_][2] $SampleKinds[$_][3]) })
+    for ($i = 0; $i -lt $opts.Count; $i++) { Write-Host ("  {0}) {1}" -f ($i + 1), $opts[$i]) }
+    $ans = (Read-Host (T "ข้อมูล" "Data")).Trim().Trim('"')
+    if (-not $ans) { return }
+    $n = 0
+    if ([int]::TryParse($ans, [ref]$n) -and $n -ge 1 -and $n -le $opts.Count) {
+        if ($n -le $have.Count) { $ans = $have[$n - 1].FullName } else { $ans = @($SampleKinds.Keys)[$n - $have.Count - 1] }
+    }
+    }
+    if ($SampleKinds.Contains($ans)) {
+        $s = $SampleKinds[$ans]
+        $info = [pscustomobject]@{ kind = $s[0]; task = $s[1]; name = $ans; path = $ans; summary = (T $s[2] $s[3]); task_th = ""; gpu = $false; vram_gb = 0; thai = $true; target = $null; time_column = $null; group_column = $null; columns = @() }
+        $sample = $true
+    } else {
+        Say (T "กำลังตรวจข้อมูล..." "Looking at the data...")
+        $json = uv run python -m ml_training.inspect_data $ans --json | Select-Object -Last 1
+        try { $info = $json | ConvertFrom-Json } catch { throw (T "อ่านผลตรวจข้อมูลไม่ได้: $json" "Could not read the data check: $json") }
+        if ($info.error) { Say $info.error "Red"; return }
+        $sample = $false
+    }
+    Say ""
+    Say (T "พบข้อมูล:" "Found:")
+    Say "  $($info.summary)" "White"
+    if ($info.task_th) { Say ((T "  งานที่เหมาะ: " "  Task: ") + $info.task_th) "White" }
+    if (-not $sample) {
+        if ($info.gpu) { Say ((T "  เครื่องนี้: การ์ดจอ " "  This PC: GPU ") + "$($info.gpu_name) ($($info.vram_gb) GB)") "Green" }
+        elseif ($info.kind -ne "table") { Say (T "  เครื่องนี้ไม่มีการ์ดจอ NVIDIA - จะช้า แนะนำเลือก 'ทดลองเร็ว' ก่อน" "  No NVIDIA GPU - training will be slow, try 'quick' first") "Yellow" }
+    }
+
+    $extra = @()
+    if ($info.kind -eq "table" -and -not $sample) {
+        Say ((T "`nคอลัมน์: " "`nColumns: ") + ($info.columns -join ', '))
+        $t = (Read-Host ((T "คอลัมน์ที่ต้องการให้โมเดลทาย" "Column to predict") + " [$($info.target)]")).Trim()
+        if (-not $t) { $t = $info.target }
+        if ($info.columns -notcontains $t) { Say (T "ไม่มีคอลัมน์ '$t' ในตาราง" "No column '$t' in the table") "Red"; return }
+        $extra += "target=$t"
+        if ($info.time_column -and (Ask-Yes (T "เป็นข้อมูลตามเวลา (คอลัมน์ '$($info.time_column)') ต้องการพยากรณ์อนาคตไหม" "Time series on '$($info.time_column)' - forecast the future?"))) {
+            $extra += "time=$($info.time_column)"
+            if ($info.group_column) { $extra += "group=$($info.group_column)"; Say (T "  แยกพยากรณ์ตาม '$($info.group_column)'" "  one series per '$($info.group_column)'") }
+        } elseif ($info.task -eq "forecast") { $extra += "task=regress" }
+    }
+
+    Say (T "`nต้องการแบบไหน:" "`nHow thorough:")
+    $level = Read-Choice (T "เลือก" "Choose") @(
+        (T "ทดลองเร็ว     - ไม่กี่นาที ไว้ดูว่าระบบทำงาน / ข้อมูลใช้ได้" "Quick        - a few minutes, to check the data works"),
+        (T "มาตรฐาน       - จูนค่าอัตโนมัติ ได้โมเดลที่ดี (แนะนำ)" "Standard     - automatic tuning, a good model (recommended)"),
+        (T "แม่นที่สุด     - โมเดลใหญ่ขึ้น / เทียบหลายโมเดล ใช้เวลานาน" "Most accurate - bigger model / compare several, takes long")) 2
+    $mode = @("quick", "full", "full")[$level]
+    $ds = $info.path
+    $script:LastReport = $null
+    switch ($info.kind) {
+        "yolo" {
+            $size = @("n", "s", "m")[$level]; if (-not $info.gpu -and -not $sample -and $level -gt 0) { $size = "n" }
+            $tune = @("default", "default", "accurate")[$level]
+            Say ((T "`nจะเทรน: YOLO11" "`nWill train: YOLO11") + "$size  ($($info.task), $mode)") "White"
+            if (-not (Ask-Yes (T "เริ่มเลยไหม" "Start now?"))) { return }
+            Invoke-Detect $ds $size $mode @("tune=$tune", "data.task=$($info.task)")
+        }
+        "vision" {
+            if ($info.task -eq "semantic") { $size = @("seg-b0", "seg-b0", "seg-b2")[$level]; $vt = "segment" }
+            else { $size = @("efficientnet", "efficientnet", "convnext")[$level]; $vt = "classify" }
+            if ($sample) { $size = @("tiny", "seg-tiny")[[int]($vt -eq "segment")] }
+            Say ((T "`nจะเทรน: " "`nWill train: ") + "$size  ($vt, $mode)") "White"
+            if (-not (Ask-Yes (T "เริ่มเลยไหม" "Start now?"))) { return }
+            Invoke-Vision $ds $size $mode @("data.task=$vt")
+        }
+        "text" {
+            $std = @("base", "thai")[[int][bool]$info.thai]
+            $size = @("small", $std, "large")[$level]
+            if ($level -eq 2 -and $info.vram_gb -lt 12) { $size = $std; Say (T "  การ์ดจอเล็กกว่า 12 GB - ใช้โมเดล $std แทน large" "  GPU under 12 GB - using $std instead of large") "Yellow" }
+            if ($sample) { $size = "tiny" }
+            Say ((T "`nจะเทรน: โมเดลข้อความ " "`nWill train: text model ") + "$size  ($($info.task), $mode)") "White"
+            if (-not (Ask-Yes (T "เริ่มเลยไหม" "Start now?"))) { return }
+            Invoke-Text $ds $size $mode @()
+        }
+        "table" {
+            $models = @("lightgbm", "lightgbm", "all")[$level]
+            Say ((T "`nจะเทรน: " "`nWill train: ") + "$models  ($mode)") "White"
+            if (-not (Ask-Yes (T "เริ่มเลยไหม" "Start now?"))) { return }
+            Invoke-Table $ds $models $mode $extra
+        }
+    }
+    Say (T "`nเสร็จแล้ว! ใช้โมเดลทำนายข้อมูลใหม่ได้ที่เมนู 3 · ดูผล / เทียบโมเดลที่เมนู 4" "`nDone! Predict new data with menu 3 · compare models with menu 4") "Green"
+    Open-Report
+}
+
+# ----------------------------------------------------------------------------- menus
+function Show-TrainMenu {
+    Say (T "`n---------- เทรนแบบเลือกเอง ----------" "`n---------- Train (choose yourself) ----------")
+    $k = Read-Choice (T "เลือก" "Choose") @(
+        (T "YOLO: ตรวจจับวัตถุ / แยกวัตถุ / จัดหมวด / pose / กรอบเอียง" "YOLO (detect / segment / classify / pose / obb)"),
+        (T "ข้อความ / เอกสาร: จัดหมวดข้อความ ดึงข้อมูลสำคัญ (NER) แยกประเภทเอกสาร" "TEXT / DOCUMENTS (classify texts, NER, document folders)"),
+        (T "ภาพ: จัดหมวดด้วย ResNet / EfficientNet / ConvNeXt / ViT หรือแยกทุกพิกเซล" "IMAGES beyond YOLO (classify, pixel segmentation)"),
+        (T "ตาราง (CSV / Excel): จัดหมวด ทายตัวเลข พยากรณ์อนาคต" "TABLES (classify, predict a number, forecast)"),
+        (T "กลับ" "Back"))
+    $script:LastReport = $null
+    switch ($k) {
+        0 {
+            $ds = Select-Dataset
+            Say (T "`nรุ่น YOLO:" "`nYOLO version:")
+            $gen = @("", "26")[(Read-Choice (T "เลือก" "Choose") @((T "YOLO11 (เสถียร ค่าเริ่มต้น)" "YOLO11 (proven, default)"), (T "YOLO26 (ใหม่ล่าสุด)" "YOLO26 (newest)")))]
+            Say (T "`nขนาดโมเดล (n = เร็วที่สุด ... x = แม่นที่สุด):" "`nModel size (n = fastest ... x = most accurate):")
+            $sizeOpts = @("n  (nano)", "s  (small)", "m  (medium)", "l  (large)", "x  (extra large)", (T "ทุกขนาด ทีละตัว แล้วเทียบกัน" "all sizes, one after another"))
+            $size = $gen + @("n", "s", "m", "l", "x", "all")[(Read-Choice (T "เลือก" "Choose") $sizeOpts)]
+            Say (T "`nโหมด:" "`nTraining mode:")
+            $mode = @("quick", "full")[(Read-Choice (T "เลือก" "Choose") @((T "ทดลองเร็ว (ไม่จูน 30 epochs)" "Quick test (no tuning, 30 epochs)"), (T "เต็ม (Optuna จูน + epochs ตาม preset)" "Full (Optuna tuning + epochs from the tuning preset)")))]
+            Say (T "`nPreset การจูน:" "`nTuning preset:")
+            $tune = Select-Preset
+            Invoke-Detect $ds $size $mode @("tune=$tune")
+        }
+        1 {
+            $ds = Select-TextDataset
+            Say (T "`nโมเดล (อ่านภาษาไทยได้ทุกตัว):" "`nModel (all read Thai):")
+            $k2 = Read-Choice (T "เลือก" "Choose") @(
+                (T "tiny   เทรนจากศูนย์ ไม่ต้องดาวน์โหลด - ไว้ลองระบบเท่านั้น" "tiny   trained from scratch, no download - only to try the pipeline"),
+                (T "small  DistilBERT หลายภาษา - เร็ว ใช้ CPU ได้" "small  multilingual DistilBERT - fast, OK on CPU"),
+                (T "base   XLM-RoBERTa - แม่นและรองรับไทยดี (แนะนำ GPU)" "base   XLM-RoBERTa base - strong default (GPU recommended)"),
+                (T "thai   WangchanBERTa - ดีที่สุดสำหรับข้อความไทยล้วน" "thai   WangchanBERTa - best for Thai-only text"),
+                (T "large  XLM-RoBERTa large - แม่นที่สุด (GPU 12 GB+)" "large  XLM-RoBERTa large - most accurate (GPU 12 GB+)")) 3
+            Say (T "`nโหมด:" "`nTraining mode:")
+            $mode = @("quick", "full")[(Read-Choice (T "เลือก" "Choose") @((T "ทดลองเร็ว (ไม่จูน 2 epochs)" "Quick test (no tuning, 2 epochs)"), (T "เต็ม (Optuna 8 รอบ + เทรนจริง)" "Full (Optuna 8 trials + final training)")))]
+            Invoke-Text $ds $TextSizes[$k2] $mode @()
+        }
+        2 {
+            $ds = Select-ImageDataset
+            $seg = $ds -eq "shapes-seg" -or ((Test-Path "data\raw\$ds") -and (Get-ChildItem "data\raw\$ds" -Directory | Where-Object { "masks", "mask", "SegmentationClass" -contains $_.Name }))
+            if ($ds -match '^shapes') { $size = @("tiny", "seg-tiny")[[int][bool]$seg] }
+            elseif ($seg) {
+                Say (T "`nโมเดลแยกทุกพิกเซล (SegFormer):" "`nSegmentation model (SegFormer, pretrained):")
+                $size = @("seg-b0", "seg-b2")[(Read-Choice (T "เลือก" "Choose") @((T "seg-b0  เร็ว ใช้การ์ดจอไหนก็ได้" "seg-b0  fast, any GPU"), (T "seg-b2  แม่นกว่า ต้อง GPU 8 GB+" "seg-b2  more accurate, GPU 8 GB+")))]
+            } else {
+                Say (T "`nโมเดลจัดหมวดภาพ (ดาวน์โหลด weight ครั้งแรกครั้งเดียว):" "`nClassification model (ImageNet-pretrained, downloaded once):")
+                $size = @("efficientnet", "resnet50", "convnext", "vit")[(Read-Choice (T "เลือก" "Choose") @(
+                    (T "efficientnet  เล็ก เร็ว แม่นดี (แนะนำ)" "efficientnet  EfficientNet-B0 - small and fast, good default"),
+                    (T "resnet50      มาตรฐาน ทนทาน" "resnet50      ResNet-50 - classic, robust"),
+                    (T "convnext      มักแม่นที่สุดในขนาดนี้" "convnext      ConvNeXt-Tiny - usually the most accurate here"),
+                    (T "vit           Vision Transformer ข้อมูลเยอะ ต้อง GPU 8 GB+" "vit           ViT-B/16 - best with lots of data (GPU 8 GB+)")))]
+            }
+            Say (T "`nโหมด:" "`nTraining mode:")
+            $mode = @("quick", "full")[(Read-Choice (T "เลือก" "Choose") @((T "ทดลองเร็ว (ไม่จูน 3 epochs)" "Quick test (no tuning, 3 epochs)"), (T "เต็ม (Optuna 8 รอบ + เทรนจริง)" "Full (Optuna 8 trials + final training)")))]
+            Invoke-Vision $ds $size $mode @()
+        }
+        3 {
+            $ds = Select-TableDataset
+            $extra = @()
+            if (-not (Test-Path "configs\data\$ds.yaml")) {
+                $cols = @()
+                if ($ds -like "*.csv") { $cols = @((Get-Content $ds -TotalCount 1 -Encoding UTF8) -split ',' | ForEach-Object { $_.Trim('"') }) }
+                if ($cols) { Say ((T "`nคอลัมน์: " "`nColumns: ") + ($cols -join ', ')) }
+                $extra += "target=" + (Read-Host (T "คอลัมน์ที่ต้องการทาย (target)" "Column to predict (target)"))
+                $t = Read-Host (T "คอลัมน์วันที่ / เวลา ถ้าต้องการพยากรณ์อนาคต (เว้นว่าง = ไม่ใช่ข้อมูลตามเวลา)" "Date / time column for forecasting (empty = not a time series)")
+                if ($t) {
+                    $extra += "time=$t"
+                    $g = Read-Host (T "คอลัมน์ที่แยกหลายชุด เช่น สาขา / สินค้า (เว้นว่าง = ชุดเดียว)" "Column that separates several series, e.g. shop or product (empty = one series)")
+                    if ($g) { $extra += "group=$g" }
+                }
+            }
+            Say (T "`nโมเดล:" "`nModel:")
+            $k2 = Read-Choice (T "เลือก" "Choose") @(
+                (T "lightgbm      เร็ว มักแม่นที่สุดกับตาราง (แนะนำ)" "lightgbm      LightGBM - fast, usually the most accurate on tables"),
+                (T "xgboost       แม่นมาก" "xgboost       XGBoost - very accurate gradient boosting"),
+                (T "random_forest ทนทาน ตั้งค่าน้อย" "random_forest Random forest - robust, few settings"),
+                (T "all           เทรนทุกโมเดลแล้วเทียบกัน" "all           train every model and compare"))
+            $models = @("lightgbm", "xgboost", "random_forest", "all")[$k2]
+            Say (T "`nโหมด:" "`nTraining mode:")
+            $mode = @("quick", "full")[(Read-Choice (T "เลือก" "Choose") @((T "ทดลองเร็ว (ไม่จูน)" "Quick (no tuning)"), (T "เต็ม (Optuna 30 รอบ + โมเดลสุดท้าย)" "Full (Optuna 30 trials + final model)")) 2)]
+            Invoke-Table $ds $models $mode $extra
+        }
+        4 { return }
+    }
+    Open-Report
+}
+
+function Show-MoreMenu {
+    while ($true) {
+        Say (T "`n---------- เครื่องมือเพิ่มเติม ----------" "`n---------- More tools ----------")
+        $k = Read-Choice (T "เลือก" "Choose") @(
+            (T "ตรวจเครื่อง (การ์ดจอ ส่วนที่ติดตั้งแล้ว พื้นที่ดิสก์)" "Check this computer (GPU, installed parts, disk)"),
+            (T "ติดตั้ง / อัปเดต (CPU หรือการ์ดจอ NVIDIA)" "Install / update (CPU or NVIDIA GPU)"),
+            (T "ติดตั้ง OCR (อ่านเอกสารสแกน / รูปเอกสาร)" "Install OCR (scanned documents)"),
+            (T "ตั้งค่าการจูน YOLO (ดู / สร้าง / แก้ preset)" "YOLO tuning presets (view / create / edit)"),
+            (T "เปิด MLflow (ประวัติทุกการเทรน กราฟ และโมเดลที่ลงทะเบียน)" "Open MLflow UI (all runs, metrics, model registry)"),
+            (T "เปิด Optuna dashboard (การจูน)" "Open Optuna dashboard"),
+            (T "ประวัติการใช้งาน (เตรียมข้อมูล / เทรน / ทำนาย / ล้าง)" "History (every prepare / train / predict / clean)"),
+            (T "ล้างข้อมูล / ผลลัพธ์ (ถามก่อนลบ)" "Clean data / results (asks before deleting)"),
+            (T "ตัวอย่าง DVC pipeline (ข้อมูลตาราง breast cancer)" "Tabular demo: run the DVC pipeline (breast cancer)"),
+            (T "คำสั่งทั้งหมด (สำหรับพิมพ์เอง)" "Help (all commands)"),
+            (T "Language / ภาษา: เปลี่ยนเป็น English" "Language / ภาษา: switch to Thai"),
+            (T "กลับ" "Back"))
+        try {
+            switch ($k) {
+                0 { uv run python -m ml_training.doctor }
+                1 {
+                    $g = Read-Choice (T "ติดตั้งสำหรับ" "Install for") @((T "CPU อย่างเดียว" "CPU only"), (T "การ์ดจอ NVIDIA (CUDA)" "NVIDIA GPU (CUDA)"))
+                    if ($g -eq 0) { & $PSCommandPath setup-yolo } else { & $PSCommandPath setup-gpu }
+                }
+                2 { & $PSCommandPath setup-ocr }
+                3 { Show-TuningMenu }
+                4 { Start-Process "http://127.0.0.1:5000"; uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db" --port 5000 }
+                5 { Start-Process "http://127.0.0.1:8080"; uv run optuna-dashboard sqlite:///optuna.db --port 8080 }
+                6 {
+                    uv run python -m ml_training.lineage 30 --excel
+                    if ((Test-Path logs\history.xlsx) -and (Ask-Yes (T "เปิด history.xlsx ไหม" "Open history.xlsx?") $false)) { Invoke-Item logs\history.xlsx }
+                }
+                7 {
+                    $names = @(@("data\processed", "models", "reports") | ForEach-Object { Get-ChildItem $_ -Directory -ErrorAction SilentlyContinue } | ForEach-Object Name | Where-Object { "pretrained", "runs", "figures" -notcontains $_ } | Sort-Object -Unique)
+                    Say (T "`nล้างอะไร?" "`nClean what?")
+                    $opts = $names + @((T "ทุกชุดข้อมูล (ผลทั้งหมด + ประวัติ MLflow / Optuna)" "ALL datasets (every result + MLflow / Optuna history)"))
+                    $c = Read-Choice (T "เลือก" "Choose") $opts
+                    $target = "all"; if ($c -lt $names.Count) { $target = $names[$c] }
+                    $raw = Ask-Yes (T "ลบข้อมูลดิบใน data\raw ด้วยไหม" "Also delete the raw dataset in data\raw?") $false
+                    if ($raw) { Invoke-Clean @($target, "raw") } else { Invoke-Clean @($target) }
+                }
+                8 { uv run dvc repro; uv run dvc metrics show }
+                9 { (Get-Content $PSCommandPath -TotalCount $HelpLines -Encoding UTF8) -join "`n" | Write-Host }
+                10 {
+                    $script:Lang = @("en", "th")[[int]($script:Lang -eq "en")]
+                    Set-Content .lang $script:Lang
+                    Say (T "เปลี่ยนเป็นภาษาไทยแล้ว" "Switched to English") "Green"
+                }
+                11 { return }
+            }
+        } catch { Say ((T "ผิดพลาด: " "Error: ") + $_.Exception.Message) "Red" }
+    }
+}
+
 function Show-Menu {
     while ($true) {
-        Say "`n========== ML Training =========="
+        Say (T "`n================ ML Training · ระบบเทรนโมเดล AI ================" "`n================ ML Training ================")
+        $trained = @(Get-TrainedNames)
+        if ($trained) { Say ((T "โมเดลที่เทรนแล้ว: " "Trained: ") + ($trained -join ', ')) "DarkGray" }
         $u = Get-Unfinished
-        if ($u) { Say ("{0} training(s) stopped before the end - choose 5 to continue: {1}" -f $u.Count, (($u | ForEach-Object { ($_ -split '\|')[0..1] -join ' ' }) -join ', ')) "Yellow" }
-        $i = Read-Choice "Choose" @(
-            "Train YOLO (detect / segment / classify / pose / obb)",
-            "Train TEXT / DOCUMENTS (classify texts, pull out info = NER, document folders; Thai OK)",
-            "Train IMAGES beyond YOLO (classify: ResNet / EfficientNet / ConvNeXt / ViT, pixel segmentation)",
-            "Train TABLES (CSV / Excel: classify, predict a number, forecast a time series)",
-            "Resume a training that stopped (power cut / Ctrl+C / crash)",
-            "Predict with a trained model (images / video / texts / documents / tables / forecast)",
-            "Compare trained YOLO models",
-            "Explain a model: XAI heatmaps + why it detects + statistics Excel",
-            "Tuning settings (view / create / edit presets)",
-            "Open MLflow UI (all runs, metrics, model registry)",
-            "Install / update (CPU or NVIDIA GPU)",
-            "Clean data / results (asks before deleting)",
-            "History (every prepare / train / predict / explain / clean)",
-            "Tabular demo: run the DVC pipeline (breast cancer)",
-            "Help (all commands)",
-            "Exit")
+        if ($u) { Say ((T "มี {0} งานเทรนที่หยุดกลางทาง - เลือก 5 เพื่อเทรนต่อ: {1}" "{0} training(s) stopped before the end - choose 5 to continue: {1}") -f $u.Count, (($u | ForEach-Object { ($_ -split '\|')[0..1] -join ' ' }) -join ', ')) "Yellow" }
+        $i = Read-Choice (T "เลือก" "Choose") @(
+            (T "เทรนโมเดลใหม่ - ลากข้อมูลมาวาง ระบบเลือกงานและโมเดลให้ (แนะนำ)" "Train a new model - drag your data in, the right task and model are chosen (recommended)"),
+            (T "เทรนแบบเลือกเอง (YOLO / ข้อความ / ภาพ / ตาราง)" "Train, choosing yourself (YOLO / text / images / tables)"),
+            (T "ใช้โมเดลทำนายข้อมูลใหม่ (ภาพ วิดีโอ ข้อความ เอกสาร ตาราง พยากรณ์)" "Predict new data with a trained model"),
+            (T "ดูผล / เทียบโมเดล (เปิด Excel)" "Results / compare models (Excel)"),
+            (T "เทรนต่อจากที่ค้าง (ไฟดับ / ปิดเครื่อง / Ctrl+C)" "Resume a training that stopped (power cut / Ctrl+C / crash)"),
+            (T "อธิบายโมเดล YOLO (XAI: โมเดลมองตรงไหน ทำไมตัดสินแบบนั้น)" "Explain a YOLO model (XAI heatmaps + statistics)"),
+            (T "เครื่องมือเพิ่มเติม (ติดตั้ง ตรวจเครื่อง MLflow ล้างข้อมูล ภาษา ...)" "More tools (install, check PC, MLflow, clean, language ...)"),
+            (T "ออก" "Exit"))
         try {
             switch ($i) {
-                0 {
-                    $ds = Select-Dataset
-                    Say "`nYOLO version:"
-                    $gen = @("", "26")[(Read-Choice "Choose" @("YOLO11 (proven, default)", "YOLO26 (newest)"))]
-                    Say "`nModel size (n = fastest ... x = most accurate):"
-                    $sizeOpts = @("n  (nano)", "s  (small)", "m  (medium)", "l  (large)", "x  (extra large)", "all sizes, one after another")
-                    $size = $gen + @("n", "s", "m", "l", "x", "all")[(Read-Choice "Choose" $sizeOpts)]
-                    Say "`nTraining mode:"
-                    $mode = @("quick", "full")[(Read-Choice "Choose" @("Quick test (no tuning, 30 epochs)", "Full (Optuna tuning + epochs from the tuning preset)"))]
-                    Say "`nTuning preset (what Optuna tries + fixed training settings):"
-                    $tune = Select-Preset
-                    $script:LastReport = $null
-                    Invoke-Detect $ds $size $mode @("tune=$tune")
-                    if ($script:LastReport -and (Test-Path $script:LastReport) -and ((Read-Host "Open the Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
-                }
-                1 {
-                    $ds = Select-TextDataset
-                    Say "`nModel (all read Thai):"
-                    $k = Read-Choice "Choose" @(
-                        "tiny   trained from scratch, no download - only to try the pipeline",
-                        "small  multilingual DistilBERT - fast, OK on CPU",
-                        "base   XLM-RoBERTa base - strong default (GPU recommended)",
-                        "thai   WangchanBERTa - best for Thai-only text",
-                        "large  XLM-RoBERTa large - most accurate (GPU 12 GB+)") 3
-                    Say "`nTraining mode:"
-                    $mode = @("quick", "full")[(Read-Choice "Choose" @("Quick test (no tuning, 2 epochs)", "Full (Optuna 8 trials + final training)"))]
-                    $script:LastReport = $null
-                    Invoke-Text $ds $TextSizes[$k] $mode @()
-                    if ($script:LastReport -and (Test-Path $script:LastReport) -and ((Read-Host "Open the Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
-                }
+                0 { Invoke-Wizard }
+                1 { Show-TrainMenu }
                 2 {
-                    $ds = Select-ImageDataset
-                    $seg = $ds -eq "shapes-seg" -or ((Test-Path "data\raw\$ds") -and (Get-ChildItem "data\raw\$ds" -Directory | Where-Object { "masks", "mask", "SegmentationClass" -contains $_.Name }))
-                    if ($ds -match '^shapes') { $size = @("tiny", "seg-tiny")[[int][bool]$seg] }
-                    elseif ($seg) {
-                        Say "`nSegmentation model (SegFormer, pretrained):"
-                        $size = @("seg-b0", "seg-b2")[(Read-Choice "Choose" @("seg-b0  fast, any GPU (3.7M params)", "seg-b2  more accurate, GPU 8 GB+ (25M params)"))]
-                    } else {
-                        Say "`nClassification model (ImageNet-pretrained, downloaded once):"
-                        $size = @("efficientnet", "resnet50", "convnext", "vit")[(Read-Choice "Choose" @(
-                            "efficientnet  EfficientNet-B0 - small and fast, good default",
-                            "resnet50      ResNet-50 - classic, robust",
-                            "convnext      ConvNeXt-Tiny - usually the most accurate here",
-                            "vit           ViT-B/16 - Vision Transformer, best with lots of data (GPU 8 GB+)"))]
-                    }
-                    Say "`nTraining mode:"
-                    $mode = @("quick", "full")[(Read-Choice "Choose" @("Quick test (no tuning, 3 epochs)", "Full (Optuna 8 trials + final training)"))]
-                    $script:LastReport = $null
-                    Invoke-Vision $ds $size $mode @()
-                    if ($script:LastReport -and (Test-Path $script:LastReport) -and ((Read-Host "Open the Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
+                    $ds = Select-Dataset -Trained
+                    Say (T "ลากไฟล์ / โฟลเดอร์มาวาง (ภาพ วิดีโอ CSV PDF Word) หรือพิมพ์ประโยค / URL" "Drag a file / folder here (image, video, CSV, PDF, Word) or type a sentence / URL")
+                    Say (T "  ข้อมูลตามเวลา: พิมพ์จำนวนงวด เช่น 30 = พยากรณ์ 30 งวดข้างหน้า" "  time series: type a number, e.g. 30 = forecast 30 periods ahead") "DarkGray"
+                    $src = Read-Host (T "ข้อมูลที่จะทำนาย" "What to predict")
+                    Invoke-Find $ds $src "" @()
                 }
                 3 {
-                    $ds = Select-TableDataset
-                    $extra = @()
-                    if (-not (Test-Path "configs\data\$ds.yaml")) {
-                        $cols = @()
-                        if ($ds -like "*.csv") { $cols = @((Get-Content $ds -TotalCount 1) -split ',' | ForEach-Object { $_.Trim('"') }) }
-                        if ($cols) { Say "`nColumns: $($cols -join ', ')" }
-                        $extra += "target=" + (Read-Host "Column to predict (target)")
-                        $t = Read-Host "Date / time column for forecasting (empty = not a time series)"
-                        if ($t) {
-                            $extra += "time=$t"
-                            $g = Read-Host "Column that separates several series, e.g. shop or product (empty = one series)"
-                            if ($g) { $extra += "group=$g" }
-                        }
-                    }
-                    Say "`nModel:"
-                    $k = Read-Choice "Choose" @(
-                        "lightgbm      LightGBM - fast, usually the most accurate on tables",
-                        "xgboost       XGBoost - very accurate gradient boosting",
-                        "random_forest Random forest - robust, few settings",
-                        "all           train every model and compare (lightgbm xgboost random_forest gradient_boosting linear svm)")
-                    $models = @("lightgbm", "xgboost", "random_forest", "all")[$k]
-                    Say "`nTraining mode:"
-                    $mode = @("quick", "full")[(Read-Choice "Choose" @("Quick (no tuning)", "Full (Optuna 30 trials + final model)") 2)]
-                    $script:LastReport = $null
-                    Invoke-Table $ds $models $mode $extra
-                    if ($script:LastReport -and (Test-Path $script:LastReport) -and ((Read-Host "Open the Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
+                    $ds = Select-Dataset -Trained
+                    Show-Results $ds
+                    $x = "reports\$ds\compare.xlsx"
+                    if ((Test-Path $x) -and (Ask-Yes (T "เปิด compare.xlsx ไหม" "Open compare.xlsx?"))) { Invoke-Item $x }
                 }
                 4 {
                     $u = Get-Unfinished
-                    if (-not $u) { Say "Nothing to resume - every training finished." "Green"; continue }
-                    Say "`nUnfinished trainings:"
-                    $k = Read-Choice "Choose" @($u | ForEach-Object { $f = $_ -split '\|'; "{0,-16} {1,-9} {2}  ({3})" -f $f[0], $f[1], $f[2], $f[3] })
+                    if (-not $u) { Say (T "ไม่มีงานค้าง - ทุกงานเทรนจบแล้ว" "Nothing to resume - every training finished.") "Green"; continue }
+                    Say (T "`nงานที่ค้าง:" "`nUnfinished trainings:")
+                    $k = Read-Choice (T "เลือก" "Choose") @($u | ForEach-Object { $f = $_ -split '\|'; "{0,-16} {1,-9} {2}  ({3})" -f $f[0], $f[1], $f[2], $f[3] })
                     $f = $u[$k] -split '\|'
-                    $script:LastReport = $null
                     uv run python -m ml_training.resume run $f[0] $f[1]
-                    $x = "reports\$($f[0])\$($f[1])\report.xlsx"
-                    if ($LASTEXITCODE -eq 0 -and (Test-Path $x) -and ((Read-Host "Open the Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $x }
+                    $script:LastReport = "reports\$($f[0])\$($f[1])\report.xlsx"
+                    if ($LASTEXITCODE -eq 0) { Open-Report }
                 }
                 5 {
                     $ds = Select-Dataset -Trained
-                    $src = Read-Host "Image / folder / video / URL / text / CSV path (drag it here), or a number = forecast periods"
-                    Invoke-Find $ds $src "" @()
-                }
-                6 { $ds = Select-Dataset -Trained; Show-Results $ds; $x = "reports\$ds\compare.xlsx"; if ((Test-Path $x) -and ((Read-Host "Open compare.xlsx? (y/n) [y]") -ne "n")) { Invoke-Item $x } }
-                7 {
-                    $ds = Select-Dataset -Trained
-                    $n = Read-Host "How many test images to analyse? [100]"
+                    $n = Read-Host (T "วิเคราะห์ภาพทดสอบกี่ภาพ [100]" "How many test images to analyse? [100]")
                     $script:LastReport = $null
                     Invoke-Explain $ds "" $n @()
-                    if ($script:LastReport -and ((Read-Host "Open the XAI Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
+                    Open-Report
                 }
-                8 { Show-TuningMenu }
-                9 { Start-Process "http://127.0.0.1:5000"; uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db" --port 5000 }
-                10 {
-                    $g = Read-Choice "Install for" @("CPU only", "NVIDIA GPU (CUDA)")
-                    if ($g -eq 0) { & $PSCommandPath setup-yolo } else { & $PSCommandPath setup-gpu }
-                }
-                11 {
-                    $names = @(@("data\processed", "models", "reports") | ForEach-Object { Get-ChildItem $_ -Directory -ErrorAction SilentlyContinue } | ForEach-Object Name | Where-Object { "pretrained", "runs", "figures" -notcontains $_ } | Sort-Object -Unique)
-                    Say "`nClean what?"
-                    $opts = $names + @("ALL datasets (every result + MLflow / Optuna history)")
-                    $k = Read-Choice "Choose" $opts
-                    $target = "all"; if ($k -lt $names.Count) { $target = $names[$k] }
-                    $raw = (Read-Host "Also delete the raw dataset in data\raw? (y/n) [n]") -eq "y"
-                    if ($raw) { Invoke-Clean @($target, "raw") } else { Invoke-Clean @($target) }
-                }
-                12 {
-                    uv run python -m ml_training.lineage 30 --excel
-                    if ((Test-Path logs\history.xlsx) -and ((Read-Host "Open history.xlsx? (y/n) [n]") -eq "y")) { Invoke-Item logs\history.xlsx }
-                }
-                13 { uv run dvc repro; uv run dvc metrics show }
-                14 { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
-                15 { return }
+                6 { Show-MoreMenu }
+                7 { return }
             }
-        } catch { Say "Error: $($_.Exception.Message)" "Red" }
+        } catch { Say ((T "ผิดพลาด: " "Error: ") + $_.Exception.Message) "Red" }
     }
 }
 
@@ -678,6 +860,8 @@ switch ($Task) {
         if ($script:LastReport -and (Test-Path $script:LastReport)) { Invoke-Item $script:LastReport }
         break
     }
+    { $_ -in "auto", "wizard" } { Invoke-Wizard $(if ($Rest) { $Rest[0] } else { "" }); break }
+    "doctor" { uv run python -m ml_training.doctor }
     { $_ -in "table", "tabular" } {
         # table <file|name> [model|all] [quick|full] [target=.. time=.. group=.. key=value] in any order
         $a = @($Rest); $models = $null; $mode = $null; $extra = @()

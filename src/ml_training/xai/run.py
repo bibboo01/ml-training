@@ -24,6 +24,7 @@ import pandas as pd
 from omegaconf import DictConfig
 
 from ml_training import lineage
+from ml_training.friendly import friendly_errors
 from ml_training.utils import CONFIG_DIR, log, read_json
 from ml_training.xai import analysis as A
 from ml_training.xai.cam import YoloExplainer, overlay
@@ -495,6 +496,7 @@ def track(cfg: DictConfig, info: dict, t: dict, path: Path) -> None:
 
 
 @hydra.main(version_base="1.3", config_path=CONFIG_DIR, config_name="config")
+@friendly_errors
 def main(cfg: DictConfig) -> None:
     explain(cfg)
 

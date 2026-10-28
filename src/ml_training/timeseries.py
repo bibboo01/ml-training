@@ -8,6 +8,7 @@ Future values are forecast step by step: every prediction becomes the newest lag
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import numpy as np
@@ -26,8 +27,10 @@ def find_time_column(df: pd.DataFrame, given: str | None = None) -> str:
         if n in by_name:
             return by_name[n]
     for c in df.columns:  # first text column that parses as dates
-        if df[c].dtype == object:
-            parsed = pd.to_datetime(df[c].head(50), errors="coerce")
+        if pd.api.types.is_string_dtype(df[c]) or pd.api.types.is_object_dtype(df[c]):
+            with warnings.catch_warnings():  # "could not infer format" for non-date text
+                warnings.simplefilter("ignore")
+                parsed = pd.to_datetime(df[c].head(50), errors="coerce")
             if parsed.notna().mean() > 0.9:
                 return c
     raise ValueError("No date / time column found – set data.time_column=<column name>")

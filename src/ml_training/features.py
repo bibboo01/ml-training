@@ -20,6 +20,7 @@ from sklearn.model_selection import train_test_split
 
 from ml_training import lineage
 from ml_training.backends import data_backend
+from ml_training.friendly import friendly_errors
 from ml_training.utils import CONFIG_DIR, ensure_dir, log, read_json, write_json
 
 TARGET_COL = "__target__"
@@ -32,6 +33,18 @@ def infer_feature_types(X: pd.DataFrame) -> dict[str, list[str]]:
     categorical = [c for c in X.columns if c not in numeric or c in bool_cols]
     numeric = [c for c in numeric if c not in bool_cols]
     return {"numeric": numeric, "categorical": categorical}
+
+
+def _is_id(name: str) -> bool:
+    """id, customer_id, CustomerID, id_card, รหัส ... (dropped only when unique per row)."""
+    n = name.lower().replace("-", "_").replace(" ", "_")
+    camel = name.endswith(("ID", "Id")) and len(name) > 2
+    return (
+        n in ("id", "index", "no", "row", "รหัส", "ลำดับ")
+        or n.endswith("_id")
+        or n.startswith("id_")
+        or camel
+    )
 
 
 def detect_task(y: pd.Series, d: DictConfig) -> str:
@@ -68,7 +81,15 @@ def run(cfg: DictConfig) -> Path:
     raw_path = Path(cfg.paths.raw) / f"{d.name}.csv"
     df = pd.read_csv(raw_path)
     df = df.drop(columns=list(d.drop_columns or []), errors="ignore")
+    if d.target not in df.columns:
+        raise KeyError(
+            f"ไม่พบคอลัมน์ target '{d.target}' – คอลัมน์ที่มี: {', '.join(map(str, df.columns))}"
+        )
     df = df.dropna(subset=[d.target])
+    ids = [c for c in df.columns if c != d.target and _is_id(str(c)) and df[c].nunique() == len(df)]
+    if ids:  # a row number / customer id only lets the model memorise rows
+        log.info("Ignoring ID columns (unique per row): %s", ids)
+        df = df.drop(columns=ids)
     task = detect_task(df[d.target], d)
     extra: dict = {}
     if task == "forecast":
@@ -164,6 +185,7 @@ def load_splits(processed_dir: str | Path):
 
 
 @hydra.main(version_base="1.3", config_path=CONFIG_DIR, config_name="config")
+@friendly_errors
 def main(cfg: DictConfig) -> None:
     out = run(cfg)
     meta = read_json(out / "meta.json") if (out / "meta.json").exists() else {}

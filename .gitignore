@@ -45,3 +45,4 @@ desktop.ini
 /logs/*.xlsx
 # Local OCR marker created by run.ps1 setup-ocr
 .ocr
+.lang

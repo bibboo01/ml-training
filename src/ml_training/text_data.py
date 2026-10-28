@@ -177,7 +177,11 @@ def find_column(df: pd.DataFrame, wanted: str | None, names: tuple[str, ...], ki
     for n in names:
         if n in lower:
             return lower[n]
-    obj = [c for c in df.columns if df[c].dtype == object]
+    obj = [
+        c
+        for c in df.columns
+        if pd.api.types.is_string_dtype(df[c]) or pd.api.types.is_object_dtype(df[c])
+    ]
     if kind == "text" and obj:  # longest strings on average
         return max(obj, key=lambda c: df[c].astype(str).str.len().mean())
     if kind == "label":  # fewest distinct values among the rest
