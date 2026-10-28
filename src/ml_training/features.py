@@ -21,6 +21,7 @@ from sklearn.model_selection import train_test_split
 from ml_training import lineage
 from ml_training.backends import data_backend
 from ml_training.friendly import friendly_errors
+from ml_training.i18n import tr
 from ml_training.utils import CONFIG_DIR, ensure_dir, log, read_json, write_json
 
 TARGET_COL = "__target__"
@@ -82,8 +83,12 @@ def run(cfg: DictConfig) -> Path:
     df = pd.read_csv(raw_path)
     df = df.drop(columns=list(d.drop_columns or []), errors="ignore")
     if d.target not in df.columns:
+        cols = ", ".join(map(str, df.columns))
         raise KeyError(
-            f"ไม่พบคอลัมน์ target '{d.target}' – คอลัมน์ที่มี: {', '.join(map(str, df.columns))}"
+            tr(
+                f"ไม่พบคอลัมน์ target '{d.target}' – คอลัมน์ที่มี: {cols}",
+                f"Target column '{d.target}' not found – columns: {cols}",
+            )
         )
     df = df.dropna(subset=[d.target])
     ids = [c for c in df.columns if c != d.target and _is_id(str(c)) and df[c].nunique() == len(df)]

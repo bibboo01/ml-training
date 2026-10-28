@@ -21,6 +21,7 @@ from typing import Any
 import pandas as pd
 from omegaconf import OmegaConf
 
+from ml_training.i18n import tr
 from ml_training.text_data import (
     CONLL_EXTS,
     DOC_EXTS,
@@ -47,16 +48,16 @@ TARGET_NAMES = LABEL_NAMES + (
     "จำนวน",
 )
 TASK_TH = {
-    "detect": "ตรวจจับวัตถุ (กรอบสี่เหลี่ยม)",
-    "segment": "แยกวัตถุเป็นรูปร่าง (polygon)",
-    "pose": "จุดสำคัญบนร่างกาย / วัตถุ (pose)",
-    "obb": "ตรวจจับแบบกรอบเอียง (obb)",
-    "classify": "จัดหมวด",
-    "semantic": "แยกทุกพิกเซลของภาพ (segmentation)",
-    "ner": "ดึงข้อมูลสำคัญจากข้อความ (NER)",
-    "docs": "จัดหมวดเอกสาร",
-    "regress": "ทายตัวเลข (regression)",
-    "forecast": "พยากรณ์อนาคตตามเวลา (time series)",
+    "detect": ("ตรวจจับวัตถุ (กรอบสี่เหลี่ยม)", "object detection (boxes)"),
+    "segment": ("แยกวัตถุเป็นรูปร่าง (polygon)", "instance segmentation (polygons)"),
+    "pose": ("จุดสำคัญบนร่างกาย / วัตถุ (pose)", "pose / keypoints"),
+    "obb": ("ตรวจจับแบบกรอบเอียง (obb)", "rotated boxes (obb)"),
+    "classify": ("จัดหมวด", "classification"),
+    "semantic": ("แยกทุกพิกเซลของภาพ (segmentation)", "pixel segmentation (semantic)"),
+    "ner": ("ดึงข้อมูลสำคัญจากข้อความ (NER)", "extract key information from text (NER)"),
+    "docs": ("จัดหมวดเอกสาร", "document classification"),
+    "regress": ("ทายตัวเลข (regression)", "predict a number (regression)"),
+    "forecast": ("พยากรณ์อนาคตตามเวลา (time series)", "forecast over time (time series)"),
 }
 
 
@@ -138,14 +139,23 @@ def _long_text_column(df: pd.DataFrame) -> str | None:
 
 def inspect_table(path: Path) -> dict[str, Any]:
     if path.suffix.lower() in CONLL_EXTS or _is_conll(path):
-        return {"kind": "text", "task": "ner", "summary": "ไฟล์ CoNLL (คำ + ป้ายกำกับ) สำหรับ NER"}
+        return {
+            "kind": "text",
+            "task": "ner",
+            "summary": tr(
+                "ไฟล์ CoNLL (คำ + ป้ายกำกับ) สำหรับ NER", "CoNLL file (words + tags) for NER"
+            ),
+        }
     df = read_table(path)
     if {"tokens", "tags"} <= set(df.columns):
         return {
             "kind": "text",
             "task": "ner",
             "rows": len(df),
-            "summary": f"ประโยคที่ติดป้ายแล้ว {len(df):,} ประโยค (tokens + tags)",
+            "summary": tr(
+                f"ประโยคที่ติดป้ายแล้ว {len(df):,} ประโยค (tokens + tags)",
+                f"{len(df):,} tagged sentences (tokens + tags)",
+            ),
         }
     cols = [str(c) for c in df.columns]
     text_col = _long_text_column(df)
@@ -166,8 +176,12 @@ def inspect_table(path: Path) -> dict[str, Any]:
                 "classes": classes.index.tolist()[:30],
                 "n_classes": int(len(classes)),
                 "thai": _thai_share(texts) > 0.3,
-                "summary": f"ข้อความ {len(df):,} แถว (คอลัมน์ '{text_col}') ป้ายกำกับ '{label}' "
-                f"{len(classes)} หมวด",
+                "summary": tr(
+                    f"ข้อความ {len(df):,} แถว (คอลัมน์ '{text_col}') "
+                    f"ป้ายกำกับ '{label}' {len(classes)} หมวด",
+                    f"{len(df):,} texts (column '{text_col}'), "
+                    f"label '{label}' with {len(classes)} classes",
+                ),
             }
     from ml_training.features import detect_task
 
@@ -192,13 +206,18 @@ def inspect_table(path: Path) -> dict[str, Any]:
         out["classes"] = y.astype(str).value_counts().index.tolist()[:30]
         out["n_classes"] = int(y.nunique())
     detail = (
-        f"{len(out.get('classes', []))} หมวด"
+        tr(f"{len(out.get('classes', []))} หมวด", f"{len(out.get('classes', []))} classes")
         if task == "classify"
-        else f"ค่า {y.min():,.4g} – {y.max():,.4g}"
+        else tr(f"ค่า {y.min():,.4g} – {y.max():,.4g}", f"values {y.min():,.4g} – {y.max():,.4g}")
     )
-    out["summary"] = f"ตาราง {len(df):,} แถว {len(cols)} คอลัมน์ · ทาย '{target}' ({detail})"
+    out["summary"] = tr(
+        f"ตาราง {len(df):,} แถว {len(cols)} คอลัมน์ · ทาย '{target}' ({detail})",
+        f"table {len(df):,} rows, {len(cols)} columns · predict '{target}' ({detail})",
+    )
     if task == "forecast":
-        out["summary"] += f" ตามเวลา '{time_col}'" + (f" แยกตาม '{group}'" if group else "")
+        out["summary"] += tr(f" ตามเวลา '{time_col}'", f" over time '{time_col}'") + (
+            tr(f" แยกตาม '{group}'", f" per '{group}'") if group else ""
+        )
     return out
 
 
@@ -235,14 +254,20 @@ def inspect_folder(root: Path) -> dict[str, Any]:
             "task": task,
             "images": n_img,
             "label_files": n_lbl,
-            "summary": f"ภาพ {n_img:,} ภาพ พร้อมไฟล์ป้ายกำกับ {n_lbl:,} ไฟล์ (รูปแบบ YOLO)",
+            "summary": tr(
+                f"ภาพ {n_img:,} ภาพ พร้อมไฟล์ป้ายกำกับ {n_lbl:,} ไฟล์ (รูปแบบ YOLO)",
+                f"{n_img:,} images with {n_lbl:,} label files (YOLO format)",
+            ),
         }
     if n_img and vision_task(root) == "segment":
         return {
             "kind": "vision",
             "task": "semantic",
             "images": n_img,
-            "summary": f"ภาพ {n_img:,} ไฟล์ (รวม mask) สำหรับแยกทุกพิกเซล",
+            "summary": tr(
+                f"ภาพ {n_img:,} ไฟล์ (รวม mask) สำหรับแยกทุกพิกเซล",
+                f"{n_img:,} image files (incl. masks) for pixel segmentation",
+            ),
         }
     splits = _classify_split_dirs(root)
     if splits:  # one sub-folder per class (optionally inside train / val / test)
@@ -253,7 +278,10 @@ def inspect_folder(root: Path) -> dict[str, Any]:
             "images": n_img,
             "classes": classes[:50],
             "n_classes": len(classes),
-            "summary": f"ภาพ {n_img:,} ภาพ แยกโฟลเดอร์ตาม {len(classes)} หมวด: "
+            "summary": tr(
+                f"ภาพ {n_img:,} ภาพ แยกโฟลเดอร์ตาม {len(classes)} หมวด: ",
+                f"{n_img:,} images in {len(classes)} class folders: ",
+            )
             + ", ".join(classes[:8])
             + (" ..." if len(classes) > 8 else ""),
         }
@@ -272,32 +300,59 @@ def inspect_folder(root: Path) -> dict[str, Any]:
                 "classes": classes,
                 "n_classes": len(classes),
                 "thai": _thai_share(sample) > 0.3 if sample else True,
-                "summary": f"เอกสาร {n_doc:,} ไฟล์ แยกโฟลเดอร์ตาม {len(classes)} หมวด",
+                "summary": tr(
+                    f"เอกสาร {n_doc:,} ไฟล์ แยกโฟลเดอร์ตาม {len(classes)} หมวด",
+                    f"{n_doc:,} documents in {len(classes)} class folders",
+                ),
             }
     if n_img:
         raise ValueError(
-            f"พบภาพ {n_img:,} ภาพ แต่ยังไม่มีป้ายกำกับ\n"
-            "  - จัดหมวดภาพ: แยกภาพใส่โฟลเดอร์ย่อยตามหมวด เช่น cat\\  dog\\\n"
-            "  - ตรวจจับวัตถุ: ตีกรอบด้วย Roboflow / CVAT / Label Studio แล้ว export แบบ YOLO"
+            tr(
+                f"พบภาพ {n_img:,} ภาพ แต่ยังไม่มีป้ายกำกับ\n"
+                "  - จัดหมวดภาพ: แยกภาพใส่โฟลเดอร์ย่อยตามหมวด เช่น cat\\  dog\\\n"
+                "  - ตรวจจับวัตถุ: ตีกรอบด้วย Roboflow / CVAT / Label Studio แล้ว export แบบ YOLO",
+                f"Found {n_img:,} images but no labels yet\n"
+                "  - classification: one sub-folder per class, e.g. cat\\  dog\\\n"
+                "  - object detection: draw boxes in Roboflow / CVAT / Label Studio, "
+                "export in YOLO format",
+            )
         )
-    raise ValueError("ไม่พบข้อมูลที่ใช้เทรนได้ในโฟลเดอร์นี้ (ภาพ เอกสาร หรือไฟล์ CSV / Excel)")
+    raise ValueError(
+        tr(
+            "ไม่พบข้อมูลที่ใช้เทรนได้ในโฟลเดอร์นี้ (ภาพ เอกสาร หรือไฟล์ CSV / Excel)",
+            "No trainable data in this folder (images, documents or a CSV / Excel file)",
+        )
+    )
 
 
 def inspect(path: str | Path) -> dict[str, Any]:
     p = Path(str(path).strip().strip('"'))
     if not p.exists():
-        raise FileNotFoundError(f"ไม่พบไฟล์หรือโฟลเดอร์: {p}")
+        raise FileNotFoundError(tr(f"ไม่พบไฟล์หรือโฟลเดอร์: {p}", f"File or folder not found: {p}"))
     if p.is_file() and zipfile.is_zipfile(p) and p.suffix.lower() == ".zip":
-        raise ValueError(f"{p.name} เป็นไฟล์ zip – แตกไฟล์ (คลิกขวา > Extract All) แล้วลากโฟลเดอร์มาแทน")
+        raise ValueError(
+            tr(
+                f"{p.name} เป็นไฟล์ zip – แตกไฟล์ (คลิกขวา > Extract All) แล้วลากโฟลเดอร์มาแทน",
+                f"{p.name} is a zip file – extract it (right-click > Extract All) "
+                "and drag the folder instead",
+            )
+        )
     if p.is_file():
         if p.suffix.lower() not in TABLE_EXTS | CONLL_EXTS:
-            raise ValueError(f"ยังไม่รองรับไฟล์ {p.suffix} – ใช้ CSV / Excel / JSONL หรือทั้งโฟลเดอร์")
+            raise ValueError(
+                tr(
+                    f"ยังไม่รองรับไฟล์ {p.suffix} – ใช้ CSV / Excel / JSONL หรือทั้งโฟลเดอร์",
+                    f"{p.suffix} files are not supported – "
+                    "use CSV / Excel / JSONL or a whole folder",
+                )
+            )
         info = inspect_table(p)
     else:
         info = inspect_folder(p)
     name = p.stem if p.is_file() else p.name
     info = {"path": str(p.resolve()), "name": name.replace(" ", "_"), **info, **_gpu()}
-    info["task_th"] = TASK_TH.get(info["task"], info["task"])
+    th, en = TASK_TH.get(info["task"], (info["task"], info["task"]))
+    info["task_th"] = tr(th, en)
     if info["kind"] == "text" and info["task"] == "docs":
         info["task"] = "classify"
     return info
@@ -305,11 +360,17 @@ def inspect(path: str | Path) -> dict[str, Any]:
 
 def _counter_line(info: dict[str, Any]) -> str:
     gpu = (
-        f"มี GPU {info['gpu_name']} ({info['vram_gb']} GB)"
+        tr(
+            f"มี GPU {info['gpu_name']} ({info['vram_gb']} GB)",
+            f"GPU {info['gpu_name']} ({info['vram_gb']} GB)",
+        )
         if info["gpu"]
-        else "ไม่มี GPU (ใช้ CPU – ช้ากว่า)"
+        else tr("ไม่มี GPU (ใช้ CPU – ช้ากว่า)", "no GPU (CPU – slower)")
     )
-    return f"{info['summary']}\nงานที่เหมาะ: {info['task_th']}\nเครื่องนี้: {gpu}"
+    return tr(
+        f"{info['summary']}\nงานที่เหมาะ: {info['task_th']}\nเครื่องนี้: {gpu}",
+        f"{info['summary']}\nTask: {info['task_th']}\nThis PC: {gpu}",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

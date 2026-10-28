@@ -16,6 +16,7 @@ from omegaconf import DictConfig
 from ml_training import lineage
 from ml_training.backends import data_backend
 from ml_training.friendly import friendly_errors
+from ml_training.i18n import tr
 from ml_training.utils import CONFIG_DIR, ensure_dir, log
 
 
@@ -64,9 +65,12 @@ def run(cfg: DictConfig) -> Path:
         return backend.prepare(cfg)
     df = load_raw(cfg)
     if cfg.data.target not in df.columns:
+        cols = ", ".join(map(str, df.columns[:40]))
         raise KeyError(
-            f"ไม่พบคอลัมน์ target '{cfg.data.target}' – คอลัมน์ที่มี: "
-            + ", ".join(map(str, df.columns[:40]))
+            tr(
+                f"ไม่พบคอลัมน์ target '{cfg.data.target}' – คอลัมน์ที่มี: {cols}",
+                f"Target column '{cfg.data.target}' not found – columns: {cols}",
+            )
         )
     out = ensure_dir(cfg.paths.raw) / f"{cfg.data.name}.csv"
     df.to_csv(out, index=False)

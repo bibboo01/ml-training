@@ -1,6 +1,6 @@
 ﻿<#
   Windows helper for ml-training.  Easiest: double-click run.bat (or type .\run.ps1) for a menu.
-  ง่ายที่สุด: ดับเบิลคลิก run.bat แล้วเลือก 1 "เทรนโมเดลใหม่" ลากโฟลเดอร์ / ไฟล์ข้อมูลมาวาง ระบบเลือกงานและโมเดลให้เอง
+  Choose 1 "Train a new model", drag a data folder / file in, and it picks the task and model.  (ภาษาไทย: More tools > Language)
     .\run.ps1 auto D:\data\helmet          # same from the command line: look at the data, pick the task, train
   YOLO, every task: detect / segment / classify / pose / obb (read from the dataset automatically)
   dataset = folder in data\raw, a full path, or a sample: coco8 coco8-seg coco8-pose dota8 mnist160
@@ -46,9 +46,10 @@ Set-Location $PSScriptRoot
 # Thai text in the console (Windows PowerShell 5.1 defaults to the ANSI code page)
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8; [Console]::InputEncoding = [Text.Encoding]::UTF8 } catch { }
 $OutputEncoding = [Text.Encoding]::UTF8
-# menu language: th (default) | en  - change in the menu: More tools > Language
-$Lang = "th"; if (Test-Path .lang) { $Lang = (Get-Content .lang -TotalCount 1).Trim() }
-function T([string]$Th, [string]$En) { if ($script:Lang -eq "en") { return $En } return $Th }
+# menu language: en (default) | th  - change in the menu: More tools > Language
+$Lang = "en"; if (Test-Path .lang) { $Lang = (Get-Content .lang -TotalCount 1).Trim() }
+$env:MLT_LANG = $Lang   # Python messages (inspect, errors, doctor) follow the menu language
+function T([string]$Th, [string]$En) { if ($script:Lang -eq "th") { return $Th } return $En }
 $env:PYTHONUTF8 = "1"
 $env:MLFLOW_DISABLE_AGENT_HINT = "1"
 # After setup-gpu, stop `uv run` from swapping the CUDA torch back to the CPU build.
@@ -747,6 +748,7 @@ function Show-MoreMenu {
                 10 {
                     $script:Lang = @("en", "th")[[int]($script:Lang -eq "en")]
                     Set-Content .lang $script:Lang
+                    $env:MLT_LANG = $script:Lang
                     Say (T "เปลี่ยนเป็นภาษาไทยแล้ว" "Switched to English") "Green"
                 }
                 11 { return }

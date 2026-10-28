@@ -26,7 +26,7 @@ def test_image_folders(tmp_path):
     (yolo / "labels" / "train" / "a.txt").write_text("0 0.5 0.5 0.2 0.2\n")
     assert inspect(yolo)["kind"] == "yolo" and inspect(yolo)["task"] == "detect"
     _img(tmp_path / "raw_photos" / "x.jpg")
-    with pytest.raises(ValueError, match="ยังไม่มีป้ายกำกับ"):
+    with pytest.raises(ValueError, match="no labels"):
         inspect(tmp_path / "raw_photos")
 
 
@@ -66,3 +66,10 @@ def test_friendly_hints():
     assert "setup-gpu" in friendly.explain(ModuleNotFoundError("x", name="lightgbm"))
     assert "VRAM" in friendly.explain(RuntimeError("CUDA out of memory. Tried to allocate"))
     assert friendly.explain(ValueError("something else")) == ""
+
+
+def test_thai_language(monkeypatch):
+    monkeypatch.setenv("MLT_LANG", "th")
+    assert "ปิด" in friendly.explain(PermissionError("report.xlsx"))
+    monkeypatch.setenv("MLT_LANG", "en")
+    assert "close it" in friendly.explain(PermissionError("report.xlsx"))
