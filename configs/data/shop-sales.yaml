@@ -1,0 +1,17 @@
+# Built-in sample, generated on first use (no download): forecast daily sales of 3 shops (2 years)
+defaults:
+  - csv
+  - _self_
+name: shop-sales
+source: sample
+sample: shop-sales
+path: null
+target: sales
+task: forecast
+time_column: date
+group_column: shop
+lags: [1, 2, 3, 7, 14, 28]
+rolling: [7, 28]
+horizon: 30
+test_size: 0.15
+val_size: 0.15

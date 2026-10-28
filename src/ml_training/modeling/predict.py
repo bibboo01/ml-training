@@ -1,6 +1,7 @@
 """Batch prediction with a trained model.
 
 uv run mlt-predict +input=data/external/new_rows.csv
+uv run mlt-predict data=shop-sales model=lightgbm +horizon=30   # forecast the next 30 periods
 uv run mlt-predict +input=new.csv +output=preds.csv \
     +model_uri=models:/breast_cancer-random_forest/latest
 
@@ -25,7 +26,7 @@ from ml_training.utils import CONFIG_DIR, log, sqlite_uri
 def track_prediction(cfg: DictConfig, info: dict, out_csv: Path, df: pd.DataFrame) -> None:
     """History of every prediction: an MLflow run (stage=predict) + a logs/history.jsonl line."""
     counts = df["class"].value_counts().to_dict() if "class" in df else {}
-    if "prediction" in df:
+    if "prediction" in df and not pd.api.types.is_float_dtype(df["prediction"]):
         counts = df["prediction"].value_counts().to_dict()
     run_id = None
     if cfg.mlflow.get("log_predictions", True):
@@ -115,8 +116,11 @@ def main(cfg: DictConfig) -> None:
         backend.predict(cfg)
         return
     root = Path(cfg.paths.root)
-    inp = Path(cfg.input)
-    df = pd.read_csv(inp if inp.is_absolute() else root / inp)
+    df, inp = None, None
+    if cfg.get("input"):
+        inp = Path(cfg.input)
+        inp = inp if inp.is_absolute() else root / inp
+        df = pd.read_excel(inp) if inp.suffix.lower() in {".xlsx", ".xls"} else pd.read_csv(inp)
 
     model_uri = cfg.get("model_uri")
     if model_uri:  # load from the MLflow Model Registry
@@ -130,7 +134,28 @@ def main(cfg: DictConfig) -> None:
         bundle = joblib.load(cfg.paths.run_model)
         pipeline, class_names = bundle["pipeline"], bundle["meta"]["class_names"]
 
-    df_in = df.drop(columns=[cfg.data.target], errors="ignore")
+    meta = {} if model_uri else bundle["meta"]
+    if meta.get("task") in ("regress", "forecast"):
+        from ml_training.modeling.regression import predict_regression
+
+        out = predict_regression(cfg, pipeline, meta, df)
+        out_path = Path(
+            cfg.get("output") or Path(cfg.paths.run_reports) / "predict" / "predictions.csv"
+        )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out.to_csv(out_path, index=False, encoding="utf-8-sig")
+        log.info("Wrote %d predictions -> %s", len(out), out_path)
+        what = str(inp) if inp else f"next {len(out)} periods"
+        track_prediction(
+            cfg,
+            {"input": what, "weights": str(cfg.paths.run_model), "task": meta["task"]},
+            out_path,
+            out,
+        )
+        return
+    if df is None:
+        raise ValueError("Give the rows to predict: +input=<file.csv>")
+    df_in = df.drop(columns=[meta.get("target") or cfg.data.get("target")], errors="ignore")
     pred = pipeline.predict(df_in)
     out = df.copy()
     out["prediction"] = [class_names[int(i)] for i in pred]
@@ -138,13 +163,15 @@ def main(cfg: DictConfig) -> None:
         proba = pipeline.predict_proba(df_in)
         for i, c in enumerate(class_names):
             out[f"proba_{c}"] = proba[:, i]
-    out_path = Path(cfg.get("output") or root / "reports" / "predictions.csv")
+    out_path = Path(
+        cfg.get("output") or Path(cfg.paths.run_reports) / "predict" / "predictions.csv"
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(out_path, index=False)
+    out.to_csv(out_path, index=False, encoding="utf-8-sig")
     log.info("Wrote %d predictions -> %s", len(out), out_path)
     track_prediction(
         cfg,
-        {"input": str(inp), "model": model_uri or str(cfg.paths.run_model)},
+        {"input": str(inp), "weights": model_uri or str(cfg.paths.run_model)},
         out_path,
         out,
     )

@@ -51,6 +51,7 @@
 .\run.ps1 fit coco8-seg n quick        # ลองงาน segment ด้วยชุดตัวอย่าง (ดาวน์โหลดให้เอง)
 .\run.ps1 text reviews                 # ข้อความ / เอกสาร (ภาษาไทยได้) ดูหัวข้อ "ข้อความ และเอกสาร"
 .\run.ps1 vision flowers               # จัดหมวดภาพ ViT / ConvNeXt / EfficientNet หรือ segmentation ดูหัวข้อ "ภาพแบบอื่น"
+.\run.ps1 table sales.csv target=sales  # ตาราง: จัดหมวด / ทายตัวเลข / พยากรณ์ ดูหัวข้อ "ข้อมูลตาราง"
 .\run.ps1 resume helmet                # เทรนต่อจากที่ค้าง (ไฟดับ / Ctrl+C / เครื่องค้าง) · resume เฉยๆ = ดูรายการที่ค้าง
 .\run.ps1 results helmet               # เทียบผลทุกขนาด
 .\run.ps1 find helmet D:\images        # ทำนายด้วยโมเดลที่ดีที่สุด (หรือ ... D:\clip.mp4 m)
@@ -222,6 +223,35 @@ PDF ใช้ข้อความในไฟล์ · PDF สแกนแล�
 ใช้โมเดลอื่นของ timm ได้ทุกตัว เช่น `.\run.ps1 vision flowers efficientnet model.arch=efficientnet_b3`
 ได้ครบเหมือนงานอื่น: Optuna, Excel (classify: Confusion, PerClass, Predictions · segmentation: IoU / Dice ต่อ class, mIoU,
 pixel accuracy, ภาพตัวอย่าง ภาพจริง | คำตอบ | ที่โมเดลทาย), MLflow Registry, history, `resume`, `results`
+
+### ข้อมูลตาราง: จัดหมวด ทายตัวเลข พยากรณ์อนาคต – `.\run.ps1 table`
+
+ไฟล์ CSV / Excel / Parquet ไฟล์เดียว บอกแค่คอลัมน์ที่ต้องการทาย ระบบเลือกงานเอง:
+label → **จัดหมวด** · ตัวเลขหลายค่า (ราคา ยอดขาย อุณหภูมิ) → **regression** · ใส่คอลัมน์วันที่ → **พยากรณ์อนาคต (time series)**
+
+```powershell
+.\run.ps1 table house-prices quick                         # ลองระบบ: ทายราคาบ้าน (ไม่ต้องดาวน์โหลด)
+.\run.ps1 table shop-sales all                             # ลองระบบ: พยากรณ์ยอดขายรายวัน 3 สาขา เทียบทุกโมเดล
+.\run.ps1 find shop-sales 30                               # ยอดขาย 30 วันข้างหน้า -> predictions.csv
+.\run.ps1 table D:\data\churn.xlsx target=Churn             # จัดหมวด (ลูกค้าจะเลิกใช้ไหม)
+.\run.ps1 table sales.csv target=sales time=date group=shop # พยากรณ์ (sales.csv อยู่ใน data\external)
+.\run.ps1 find churn D:\new_customers.csv                  # ทำนายไฟล์ใหม่
+```
+
+| โมเดล | ใช้กับ |
+|---|---|
+| `lightgbm` (ค่าเริ่มต้น) | เร็ว มักแม่นที่สุดกับข้อมูลตาราง |
+| `xgboost` | แม่นมาก (`model.params.device=cuda` ใช้ GPU) |
+| `random_forest` · `gradient_boosting` | ทนทาน ตั้งค่าน้อย |
+| `logistic_regression` (ตัวเลข = Ridge) · `svm` (ตัวเลข = SVR) | เส้นตรง / ข้อมูลน้อย |
+| `all` | เทรนทุกตัวแล้วเทียบใน `compare.xlsx` |
+
+พยากรณ์อนาคต: ระบบสร้างข้อมูลย้อนหลังให้เอง (ค่าเมื่อ 1, 2, 3, 7, 14 งวดก่อน ค่าเฉลี่ยเคลื่อนที่ 7 / 28 งวด วันในสัปดาห์ เดือน ฯลฯ)
+แบ่ง train / val / test ตามเวลา (test = ช่วงล่าสุด ไม่สุ่ม ไม่มีข้อมูลอนาคตรั่ว) · หลายสาขา / สินค้าในไฟล์เดียวใช้ `group=` ·
+ปรับได้ด้วย `data.lags=[1,7,30]` `data.rolling=[7,30]` `data.horizon=60`
+
+Excel ของงานตัวเลขมี Summary (R², MAE, RMSE, MAPE, MASE = เทียบกับการเดาว่า "เท่าเดิม" พร้อมคำอธิบายทุกค่า), ActualVsPredicted,
+Residuals, Forecast (กราฟจริง vs โมเดลตามเวลา), FeatureImportance (คอลัมน์ไหนสำคัญ), Predictions, HPO_Trials
 
 ---
 

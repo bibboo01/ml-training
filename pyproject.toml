@@ -42,6 +42,10 @@ ocr = [
 vision = [
     "timm>=1.0",
 ]
+boost = [
+    "lightgbm>=4.0",
+    "xgboost>=2.0",
+]
 
 [dependency-groups]
 # Level 4 tooling – already wired so it is ready when you move up a level.

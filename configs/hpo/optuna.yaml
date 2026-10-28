@@ -1,7 +1,7 @@
 enabled: true
 n_trials: 30
 timeout: null              # seconds, null = no limit
-metric: f1                 # accuracy | precision | recall | f1 | roc_auc | specificity
+metric: f1                 # accuracy | precision | recall | f1 | roc_auc | specificity  (numbers: r2 default, mae | rmse | mape)
 direction: maximize
 sampler: tpe               # tpe | random | cmaes
 pruner: median             # median | none

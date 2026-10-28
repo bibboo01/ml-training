@@ -1,6 +1,7 @@
 name: svm
 backend: sklearn
 class_path: sklearn.svm.SVC
+regressor: sklearn.svm.SVR
 params:
   probability: true
   random_state: ${seed}

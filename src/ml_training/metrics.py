@@ -133,3 +133,40 @@ def evaluate(
         columns=[f"pred: {c}" for c in class_names],
     )
     return EvalResult(summary=summary, per_class=pc, confusion=confusion, roc=roc)
+
+
+# --------------------------------------------------------------------------- regression
+LOWER_IS_BETTER = {"mae", "rmse", "mse", "medae", "mape", "smape", "max_error", "mase"}
+
+
+def regression_metrics(y_true, y_pred, naive: np.ndarray | None = None) -> dict[str, float]:
+    """MAE, RMSE, R², MAPE / sMAPE (in %), median and max error, share within 10 % of the truth.
+    naive = the "same as last period" forecast (lag_1) -> MASE < 1 means better than naive."""
+    y, p = np.asarray(y_true, float), np.asarray(y_pred, float)
+    err = p - y
+    nz = np.abs(y) > 1e-12
+    denom = np.abs(y) + np.abs(p)
+    out = {
+        "r2": float(1 - (err**2).sum() / ((y - y.mean()) ** 2).sum())
+        if len(y) > 1 and y.std()
+        else 0.0,
+        "mae": float(np.abs(err).mean()),
+        "rmse": float(np.sqrt((err**2).mean())),
+        "medae": float(np.median(np.abs(err))),
+        "max_error": float(np.abs(err).max()),
+        "mape": float(np.abs(err[nz] / y[nz]).mean() * 100) if nz.any() else float("nan"),
+        "smape": float((2 * np.abs(err)[denom > 0] / denom[denom > 0]).mean() * 100)
+        if (denom > 0).any()
+        else 0.0,
+        "within_10pct": float((np.abs(err[nz]) <= 0.1 * np.abs(y[nz])).mean())
+        if nz.any()
+        else float("nan"),
+        "bias": float(err.mean()),
+    }
+    if naive is not None:
+        naive = np.asarray(naive, float)
+        ok = ~np.isnan(naive)
+        base = np.abs(naive[ok] - y[ok]).mean() if ok.any() else 0.0
+        out["mae_naive"] = float(base)
+        out["mase"] = float(np.abs(err[ok]).mean() / base) if base else float("nan")
+    return out

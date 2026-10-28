@@ -2,6 +2,7 @@
 name: random_forest
 backend: sklearn
 class_path: sklearn.ensemble.RandomForestClassifier
+regressor: sklearn.ensemble.RandomForestRegressor   # used when the target is a number
 params:
   n_estimators: 200
   random_state: ${seed}

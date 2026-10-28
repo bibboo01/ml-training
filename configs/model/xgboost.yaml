@@ -1,0 +1,24 @@
+# XGBoost: gradient boosting, very accurate on tables (also great for forecasting).
+# Needs the "boost" extra (installed by .\run.ps1 setup-yolo / setup-gpu). device: cuda = NVIDIA GPU.
+name: xgboost
+backend: sklearn
+class_path: xgboost.XGBClassifier
+regressor: xgboost.XGBRegressor
+params:
+  n_estimators: 400
+  learning_rate: 0.05
+  max_depth: 6
+  subsample: 0.8
+  colsample_bytree: 0.8
+  tree_method: hist
+  device: cpu
+  random_state: ${seed}
+  n_jobs: -1
+search_space:
+  n_estimators: {type: int, low: 100, high: 1500, step: 100}
+  learning_rate: {type: float, low: 0.01, high: 0.3, log: true}
+  max_depth: {type: int, low: 3, high: 10}
+  min_child_weight: {type: float, low: 0.5, high: 20.0, log: true}
+  subsample: {type: float, low: 0.5, high: 1.0}
+  colsample_bytree: {type: float, low: 0.4, high: 1.0}
+  reg_lambda: {type: float, low: 1.0e-8, high: 10.0, log: true}

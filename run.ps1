@@ -13,6 +13,9 @@
     .\run.ps1 find reviews "ส่งไว ของดี"     # predict a sentence, a CSV, a PDF / Word / image, or a folder of them
     .\run.ps1 vision flowers convnext       # IMAGES beyond YOLO: classify (resnet50 efficientnet convnext vit) or
     .\run.ps1 vision roads seg-b0 quick     #   pixel segmentation (seg-b0 seg-b2) · samples shapes shapes-seg (tiny / seg-tiny)
+    .\run.ps1 table D:\sales.xlsx target=price  # TABLES (CSV / Excel): classify, predict a number (regression) or
+    .\run.ps1 table sales.csv target=sales time=date group=shop all   #   forecast a time series · models lightgbm xgboost ... all
+    .\run.ps1 find shop-sales 30            # forecast the next 30 periods · samples house-prices shop-sales breast_cancer iris
     .\run.ps1 resume helmet                 # continue a training that stopped (power cut, Ctrl+C, crash)
     .\run.ps1 results helmet                # compare all trained sizes (+ reports\helmet\compare.xlsx)
     .\run.ps1 find helmet D:\images         # predict with the best trained model
@@ -44,12 +47,12 @@ $env:MLFLOW_DISABLE_AGENT_HINT = "1"
 if (Test-Path .gpu) { $env:UV_NO_SYNC = "1" }
 $CudaIndex = "https://download.pytorch.org/whl/cu126"
 $Sizes = @("yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x")
-$HelpLines = 34
+$HelpLines = 37
 
-# YOLO + text (HuggingFace) + vision (timm) packages, + OCR after setup-ocr; -Gpu = CUDA build of torch
+# YOLO + text (HuggingFace) + vision (timm) + LightGBM / XGBoost packages, + OCR after setup-ocr; -Gpu = CUDA build of torch
 function Sync-Env([switch]$Gpu) {
     Remove-Item Env:UV_NO_SYNC -ErrorAction SilentlyContinue
-    $extras = @("--extra", "yolo", "--extra", "nlp", "--extra", "vision")
+    $extras = @("--extra", "yolo", "--extra", "nlp", "--extra", "vision", "--extra", "boost")
     if (Test-Path .ocr) { $extras += @("--extra", "ocr") }
     uv sync --group dev @extras
     if ($Gpu) {
@@ -234,12 +237,60 @@ function Invoke-Vision([string]$Ds, [string]$Size, [string]$Mode, [string[]]$Ext
     $script:LastReport = "reports\$($d.Name)\$m\report.xlsx"
 }
 
+# tables: "sales.csv" / "D:\x.xlsx" -> data=csv data.path=...; a built-in name -> data=<name>
+$TableModels = @("lightgbm", "xgboost", "random_forest", "gradient_boosting", "logistic_regression", "svm")
+function Get-TableDataset([string]$Ds) {
+    $Ds = $Ds.Trim().Trim('"')
+    if (Test-Path "configs\data\$Ds.yaml") { return @{ Name = $Ds; Args = @("data=$Ds") } }
+    $file = $Ds
+    if (-not (Test-Path $file -PathType Leaf)) {
+        $file = @(".csv", ".xlsx", ".xls", ".parquet" | ForEach-Object { "data\raw\$Ds$_"; "data\external\$Ds$_" } | Where-Object { Test-Path $_ })[0]
+    }
+    if (-not $file) { throw "Table not found: $Ds (a .csv / .xlsx file, or put it in data\external)" }
+    $full = (Resolve-Path $file).Path
+    $name = [IO.Path]::GetFileNameWithoutExtension($full)
+    return @{ Name = $name; Args = @("data=csv", "data.name=$name", "data.path='$($full -replace '\\', '/')'") }
+}
+
+function Invoke-Table([string]$Ds, [string]$Models, [string]$Mode, [string[]]$Extra) {
+    if (-not $Ds) { throw "Usage: .\run.ps1 table <file|name> target=<column> [time=<date column>] [group=<column>] [$($TableModels -join '|')|all] [quick|full]" }
+    if (-not $Mode) { $Mode = "full" }
+    $d = Get-TableDataset $Ds
+    # short names: target=price time=date group=shop task=regress
+    $short = @{ target = "data.target"; time = "data.time_column"; group = "data.group_column"; task = "data.task" }
+    $Extra = @($Extra | ForEach-Object { $k, $v = $_ -split '=', 2; if ($short.ContainsKey($k)) { "$($short[$k])=$v" } else { $_ } })
+    if ($Extra -match '^data\.time_column=' -and -not ($Extra -match '^data\.task=')) { $Extra += "data.task=forecast" }
+    $dataArgs = @($d.Args) + @($Extra | Where-Object { $_ -match '^\+?data\.' })
+    $Extra = @($Extra | Where-Object { $_ -notmatch '^\+?data\.' })
+    if ($d.Args[0] -eq "data=csv" -and -not ($dataArgs -match '^data\.target=')) { throw "Which column to predict? add target=<column name>" }
+    $list = @("lightgbm"); if ($Models -eq "all") { $list = $TableModels } elseif ($Models) { $list = @($Models -split ',') }
+    $modeArgs = @(); if ($Mode -eq "quick") { $modeArgs = @("hpo=none") }
+    Say "[1/2] Reading table ($($d.Name))..."
+    uv run mlt-prepare @dataArgs
+    if ($LASTEXITCODE -ne 0) { throw "Reading the table failed (see the message above)" }
+    uv run mlt-featurize @dataArgs
+    if ($LASTEXITCODE -ne 0) { throw "Preparing the table failed (see the message above)" }
+    $task = (Get-Content "data\processed\$($d.Name)\meta.json" -Raw | ConvertFrom-Json).task
+    $done = @()
+    foreach ($m in $list) {
+        Say "[2/2] Task: $task   Model: $m   Mode: $Mode"
+        uv run mlt-train @dataArgs "model=$m" @modeArgs @Extra
+        if ($LASTEXITCODE -ne 0) { Say "$m failed, continuing" "Yellow"; continue }
+        $done += $m
+    }
+    if ($done.Count -eq 0) { throw "Training failed (see the message above)" }
+    Show-Results $d.Name
+    if ($done.Count -eq 1) { $script:LastReport = "reports\$($d.Name)\$($done[0])\report.xlsx" } else { $script:LastReport = "reports\$($d.Name)\compare.xlsx" }
+    if ($task -eq "forecast") { Say "Forecast the future: .\run.ps1 find $($d.Name) 30" "Green" }
+}
+
 function Invoke-Find([string]$Ds, [string]$InputPath, [string]$Size, [string[]]$Extra) {
     if (-not $Ds -or -not $InputPath) { throw "Usage: .\run.ps1 find <dataset> <image|folder|video|url> [n|s|m|l|x]" }
     $d = Get-Dataset $Ds
     if ($Size -eq "tiny") { $m = @("img_tiny", "text_tiny")[[int](Test-Path "models\$($d.Name)\text_tiny")] }
     elseif ($Size -and ($Size -match '^(text_)?(tiny|small|base|thai|large)$')) { $m = Get-TextModel $Size }
     elseif ($Size -and ($Size -match '^(img|seg)_' -or $VisionModels.Contains($Size.ToLower()))) { $m = Get-VisionModel $Size "" }
+    elseif ($Size -and (Test-Path "configs\model\$Size.yaml")) { $m = $Size }
     elseif ($Size) { $m = (Get-Sizes $Size)[0] }
     else {
         $m = (uv run python -m ml_training.compare $d.Name --best | Select-Object -Last 1)
@@ -247,7 +298,10 @@ function Invoke-Find([string]$Ds, [string]$InputPath, [string]$Size, [string[]]$
     }
     $src = $InputPath.Trim().Trim('"')
     $what = "+input='$src'"
-    if ($src -notmatch '://') {
+    $tabular = Test-Path "models\$($d.Name)\$m.joblib"
+    if ($tabular -and -not (Test-Path "configs\data\$($d.Name).yaml")) { $d.Args = @("data=csv", "data.name=$($d.Name)") }
+    if ($tabular -and $src -match '^\d+$') { $what = "+horizon=$src" }  # forecast N periods ahead
+    elseif ($src -notmatch '://') {
         if (Test-Path $src) { $src = (Resolve-Path $src).Path -replace '\\', '/'; $what = "+input='$src'" }
         elseif ($m -like "text_*") { $what = "+text='$($src -replace "'", "’")'" }  # a sentence
         else { throw "Not found: $src" }
@@ -260,6 +314,9 @@ function Invoke-Find([string]$Ds, [string]$InputPath, [string]$Size, [string[]]$
         if ($m -like "text_*") {
             Say "Results (one row per text / entity): $out\predictions.csv" "Green"
             Import-Csv "$out\predictions.csv" | Select-Object -First 10 | Format-Table -AutoSize | Out-String | Write-Host
+        } elseif ($tabular) {
+            Say "Results: $out\predictions.csv" "Green"
+            Import-Csv "$out\predictions.csv" | Select-Object -First 15 | Format-Table -AutoSize | Out-String | Write-Host
         } elseif ($m -like "img_*") {
             Say "Results (class + confidence + top 3 per image): $out\predictions.csv" "Green"
             Import-Csv "$out\predictions.csv" | Select-Object -First 10 | Format-Table -AutoSize | Out-String | Write-Host
@@ -339,7 +396,7 @@ function Read-Choice([string]$Prompt, [string[]]$Options, [int]$Default = 1) {
 }
 
 function Select-Dataset([switch]$Trained) {
-    if ($Trained) { $names = @(Get-ChildItem models -Directory -ErrorAction SilentlyContinue | Where-Object { (Get-ChildItem $_.FullName -Filter *.pt -File) -or (Test-Path "$($_.FullName)\*\model") } | ForEach-Object Name) }
+    if ($Trained) { $names = @(Get-ChildItem models -Directory -ErrorAction SilentlyContinue | Where-Object { (Get-ChildItem $_.FullName -File | Where-Object { ".pt", ".joblib" -contains $_.Extension }) -or (Test-Path "$($_.FullName)\*\model") } | ForEach-Object Name) }
     else { $names = @(Get-ChildItem data\raw -Directory -ErrorAction SilentlyContinue | ForEach-Object Name) }
     $names = @($names | Where-Object { "pretrained", "runs" -notcontains $_ })
     Say "`nDataset:"
@@ -361,6 +418,16 @@ function Select-TextDataset {
     if ($i -lt $names.Count) { return "data\raw\" + $names[$i] }
     if ($i -eq $names.Count) { return (Read-Host "File or folder path (you can drag it here)").Trim('"') }
     return @("thai-sentiment", "thai-ner", "thai-docs")[$i - $names.Count - 1]
+}
+
+function Select-TableDataset {
+    $names = @(Get-ChildItem data\external, data\raw -File -ErrorAction SilentlyContinue | Where-Object { ".csv", ".xlsx", ".xls", ".parquet" -contains $_.Extension } | ForEach-Object FullName)
+    Say "`nTable (CSV / Excel in data\external or data\raw):"
+    $opts = @($names | ForEach-Object { Resolve-Path $_ -Relative }) + @("Type a file path...", "Sample: house-prices  (predict a price = regression)", "Sample: shop-sales    (forecast daily sales of 3 shops)", "Sample: breast_cancer (classify, 2 classes)")
+    $i = Read-Choice "Choose" $opts
+    if ($i -lt $names.Count) { return $names[$i] }
+    if ($i -eq $names.Count) { return (Read-Host "File path (you can drag it here)").Trim('"') }
+    return @("house-prices", "shop-sales", "breast_cancer")[$i - $names.Count - 1]
 }
 
 function Select-ImageDataset {
@@ -413,13 +480,14 @@ function Show-Menu {
     while ($true) {
         Say "`n========== ML Training =========="
         $u = Get-Unfinished
-        if ($u) { Say ("{0} training(s) stopped before the end - choose 4 to continue: {1}" -f $u.Count, (($u | ForEach-Object { ($_ -split '\|')[0..1] -join ' ' }) -join ', ')) "Yellow" }
+        if ($u) { Say ("{0} training(s) stopped before the end - choose 5 to continue: {1}" -f $u.Count, (($u | ForEach-Object { ($_ -split '\|')[0..1] -join ' ' }) -join ', ')) "Yellow" }
         $i = Read-Choice "Choose" @(
             "Train YOLO (detect / segment / classify / pose / obb)",
             "Train TEXT / DOCUMENTS (classify texts, pull out info = NER, document folders; Thai OK)",
             "Train IMAGES beyond YOLO (classify: ResNet / EfficientNet / ConvNeXt / ViT, pixel segmentation)",
+            "Train TABLES (CSV / Excel: classify, predict a number, forecast a time series)",
             "Resume a training that stopped (power cut / Ctrl+C / crash)",
-            "Predict with a trained model (images / video / texts / documents)",
+            "Predict with a trained model (images / video / texts / documents / tables / forecast)",
             "Compare trained YOLO models",
             "Explain a model: XAI heatmaps + why it detects + statistics Excel",
             "Tuning settings (view / create / edit presets)",
@@ -427,7 +495,7 @@ function Show-Menu {
             "Install / update (CPU or NVIDIA GPU)",
             "Clean data / results (asks before deleting)",
             "History (every prepare / train / predict / explain / clean)",
-            "Tabular data: run the full pipeline",
+            "Tabular demo: run the DVC pipeline (breast cancer)",
             "Help (all commands)",
             "Exit")
         try {
@@ -484,6 +552,34 @@ function Show-Menu {
                     if ($script:LastReport -and (Test-Path $script:LastReport) -and ((Read-Host "Open the Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
                 }
                 3 {
+                    $ds = Select-TableDataset
+                    $extra = @()
+                    if (-not (Test-Path "configs\data\$ds.yaml")) {
+                        $cols = @()
+                        if ($ds -like "*.csv") { $cols = @((Get-Content $ds -TotalCount 1) -split ',' | ForEach-Object { $_.Trim('"') }) }
+                        if ($cols) { Say "`nColumns: $($cols -join ', ')" }
+                        $extra += "target=" + (Read-Host "Column to predict (target)")
+                        $t = Read-Host "Date / time column for forecasting (empty = not a time series)"
+                        if ($t) {
+                            $extra += "time=$t"
+                            $g = Read-Host "Column that separates several series, e.g. shop or product (empty = one series)"
+                            if ($g) { $extra += "group=$g" }
+                        }
+                    }
+                    Say "`nModel:"
+                    $k = Read-Choice "Choose" @(
+                        "lightgbm      LightGBM - fast, usually the most accurate on tables",
+                        "xgboost       XGBoost - very accurate gradient boosting",
+                        "random_forest Random forest - robust, few settings",
+                        "all           train every model and compare (lightgbm xgboost random_forest gradient_boosting linear svm)")
+                    $models = @("lightgbm", "xgboost", "random_forest", "all")[$k]
+                    Say "`nTraining mode:"
+                    $mode = @("quick", "full")[(Read-Choice "Choose" @("Quick (no tuning)", "Full (Optuna 30 trials + final model)") 2)]
+                    $script:LastReport = $null
+                    Invoke-Table $ds $models $mode $extra
+                    if ($script:LastReport -and (Test-Path $script:LastReport) -and ((Read-Host "Open the Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
+                }
+                4 {
                     $u = Get-Unfinished
                     if (-not $u) { Say "Nothing to resume - every training finished." "Green"; continue }
                     Say "`nUnfinished trainings:"
@@ -494,26 +590,26 @@ function Show-Menu {
                     $x = "reports\$($f[0])\$($f[1])\report.xlsx"
                     if ($LASTEXITCODE -eq 0 -and (Test-Path $x) -and ((Read-Host "Open the Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $x }
                 }
-                4 {
+                5 {
                     $ds = Select-Dataset -Trained
-                    $src = Read-Host "Image, folder or video path (drag it here) or URL"
+                    $src = Read-Host "Image / folder / video / URL / text / CSV path (drag it here), or a number = forecast periods"
                     Invoke-Find $ds $src "" @()
                 }
-                5 { $ds = Select-Dataset -Trained; Show-Results $ds; $x = "reports\$ds\compare.xlsx"; if ((Test-Path $x) -and ((Read-Host "Open compare.xlsx? (y/n) [y]") -ne "n")) { Invoke-Item $x } }
-                6 {
+                6 { $ds = Select-Dataset -Trained; Show-Results $ds; $x = "reports\$ds\compare.xlsx"; if ((Test-Path $x) -and ((Read-Host "Open compare.xlsx? (y/n) [y]") -ne "n")) { Invoke-Item $x } }
+                7 {
                     $ds = Select-Dataset -Trained
                     $n = Read-Host "How many test images to analyse? [100]"
                     $script:LastReport = $null
                     Invoke-Explain $ds "" $n @()
                     if ($script:LastReport -and ((Read-Host "Open the XAI Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
                 }
-                7 { Show-TuningMenu }
-                8 { Start-Process "http://127.0.0.1:5000"; uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db" --port 5000 }
-                9 {
+                8 { Show-TuningMenu }
+                9 { Start-Process "http://127.0.0.1:5000"; uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db" --port 5000 }
+                10 {
                     $g = Read-Choice "Install for" @("CPU only", "NVIDIA GPU (CUDA)")
                     if ($g -eq 0) { & $PSCommandPath setup-yolo } else { & $PSCommandPath setup-gpu }
                 }
-                10 {
+                11 {
                     $names = @(@("data\processed", "models", "reports") | ForEach-Object { Get-ChildItem $_ -Directory -ErrorAction SilentlyContinue } | ForEach-Object Name | Where-Object { "pretrained", "runs", "figures" -notcontains $_ } | Sort-Object -Unique)
                     Say "`nClean what?"
                     $opts = $names + @("ALL datasets (every result + MLflow / Optuna history)")
@@ -522,13 +618,13 @@ function Show-Menu {
                     $raw = (Read-Host "Also delete the raw dataset in data\raw? (y/n) [n]") -eq "y"
                     if ($raw) { Invoke-Clean @($target, "raw") } else { Invoke-Clean @($target) }
                 }
-                11 {
+                12 {
                     uv run python -m ml_training.lineage 30 --excel
                     if ((Test-Path logs\history.xlsx) -and ((Read-Host "Open history.xlsx? (y/n) [n]") -eq "y")) { Invoke-Item logs\history.xlsx }
                 }
-                12 { uv run dvc repro; uv run dvc metrics show }
-                13 { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
-                14 { return }
+                13 { uv run dvc repro; uv run dvc metrics show }
+                14 { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
+                15 { return }
             }
         } catch { Say "Error: $($_.Exception.Message)" "Red" }
     }
@@ -579,6 +675,20 @@ switch ($Task) {
             else { throw "Unknown argument '$t'" }
         }
         Invoke-Vision $a[0] $size $mode $extra
+        if ($script:LastReport -and (Test-Path $script:LastReport)) { Invoke-Item $script:LastReport }
+        break
+    }
+    { $_ -in "table", "tabular" } {
+        # table <file|name> [model|all] [quick|full] [target=.. time=.. group=.. key=value] in any order
+        $a = @($Rest); $models = $null; $mode = $null; $extra = @()
+        for ($i = 1; $i -lt $a.Count; $i++) {
+            $t = $a[$i]
+            if ($t -match '=') { $extra += $t }
+            elseif ("quick", "full" -contains $t) { $mode = $t }
+            elseif (-not $models) { $models = $t }
+            else { throw "Unknown argument '$t'" }
+        }
+        Invoke-Table $a[0] $models $mode $extra
         if ($script:LastReport -and (Test-Path $script:LastReport)) { Invoke-Item $script:LastReport }
         break
     }

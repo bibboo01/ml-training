@@ -1,6 +1,7 @@
 name: gradient_boosting
 backend: sklearn
 class_path: sklearn.ensemble.HistGradientBoostingClassifier
+regressor: sklearn.ensemble.HistGradientBoostingRegressor
 params:
   random_state: ${seed}
 search_space:

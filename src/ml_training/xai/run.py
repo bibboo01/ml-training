@@ -429,9 +429,9 @@ def explain(cfg: DictConfig) -> Path:
     x = settings(cfg)
     processed = Path(cfg.paths.processed)
     meta = read_json(processed / "meta.json")
-    if meta.get("kind") in ("text", "vision"):
+    if meta.get("kind") in ("text", "vision") or "features" in meta:  # "features" = a table
         raise ValueError(
-            "XAI heatmaps are for YOLO models – text / img_* / seg_* models are not supported yet"
+            "XAI heatmaps are for YOLO models – text / image / table models: see the Excel report"
         )
     task, names = meta["task"], list(meta["class_names"])
     weights = find_weights(cfg)

@@ -425,3 +425,193 @@ def _images_sheet(wb, f, images: list[Path]):
         ws.write(row, 0, Path(img).name, f["key"])
         ws.insert_image(row + 1, 0, str(img), {"x_scale": scale, "y_scale": scale})
         row += int(h * scale / 20) + 3  # default row height is 20 px
+
+
+# --------------------------------------------------------------------------- regression / forecast
+REGRESSION_HELP = {
+    "r2": "share of the target's variation explained (1 = perfect, 0 = no better than the mean)",
+    "mae": "average absolute error, in target units",
+    "rmse": "root mean squared error, in target units (punishes big misses)",
+    "medae": "median absolute error (half of the predictions are closer than this)",
+    "max_error": "largest single miss",
+    "mape": "average error in % of the true value (rows where the truth is 0 are skipped)",
+    "smape": "symmetric % error (0-200), safe when values are near 0",
+    "within_10pct": "share of predictions within 10 % of the true value",
+    "bias": "average of prediction - truth (> 0 = predicts too high)",
+    "mae_naive": "MAE of the naive forecast 'same as the previous period'",
+    "mase": "MAE / naive MAE (< 1 = better than repeating the last value)",
+    "fit_seconds": "training time of the final model",
+}
+
+
+def write_regression_report(
+    path,
+    run_info,
+    summary,
+    best_params,
+    predictions: pd.DataFrame,
+    importance: pd.DataFrame,
+    trials=None,
+    importances=None,
+    config_flat=None,
+    val_summary=None,
+    ts: dict | None = None,
+) -> Path:
+    """Summary · ActualVsPredicted · Residuals · Forecast (time series) · FeatureImportance ·
+    Predictions · HPO_Trials · ParamImportance · Config."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(path, engine="xlsxwriter") as xw:
+        wb = xw.book
+        f = _fmt(wb)
+        # Summary
+        ws = wb.add_worksheet("Summary")
+        ws.write(0, 0, "ML Training Report – " + ("forecast" if ts else "regression"), f["title"])
+        info = pd.DataFrame({"field": list(run_info), "value": [str(v) for v in run_info.values()]})
+        _, r1, _, _ = _write_df(ws, info, 2, 0, f)
+        mdf = pd.DataFrame({"metric": list(summary), "test": list(summary.values())})
+        if val_summary:
+            mdf["validation (best trial)"] = [val_summary.get(k) for k in summary]
+        mdf["meaning"] = [REGRESSION_HELP.get(k, "") for k in summary]
+        _, r1, _, _ = _write_df(ws, mdf, r1 + 2, 0, f)
+        ws.write(r1 + 2, 0, "Best hyperparameters", f["key"])
+        bp = pd.DataFrame(
+            {"param": list(best_params), "value": [str(v) for v in best_params.values()]}
+        )
+        if len(bp):
+            _write_df(ws, bp, r1 + 3, 0, f)
+        ws.set_column(0, 0, 26)
+        ws.set_column(1, 2, 22)
+        ws.set_column(3, 3, 80)
+
+        # Predictions (the data the charts point at)
+        wp = wb.add_worksheet("Predictions")
+        r0, pr1, c0, c1 = _write_df(wp, predictions, 0, 0, f)
+        wp.autofilter(r0, c0, pr1, c1)
+        wp.freeze_panes(1, 0)
+        cols = list(predictions.columns)
+        yt, yp = cols.index("y_true"), cols.index("y_pred")
+        n = min(pr1, 5000)  # Excel charts get slow beyond a few thousand points
+
+        wa = wb.add_worksheet("ActualVsPredicted")
+        ch = wb.add_chart({"type": "scatter"})
+        ch.add_series(
+            {
+                "name": "test rows",
+                "categories": ["Predictions", 1, yt, n, yt],
+                "values": ["Predictions", 1, yp, n, yp],
+                "marker": {
+                    "type": "circle",
+                    "size": 4,
+                    "fill": {"color": PALETTE[0]},
+                    "border": {"none": True},
+                },
+            }
+        )
+        lo = float(np.nanmin(predictions[["y_true", "y_pred"]].to_numpy()))
+        hi = float(np.nanmax(predictions[["y_true", "y_pred"]].to_numpy()))
+        wa.write_row(0, 10, ["perfect", lo, hi])
+        wa.write_row(1, 10, ["", lo, hi])
+        ch.add_series(
+            {
+                "name": "perfect (y = x)",
+                "categories": ["ActualVsPredicted", 0, 11, 0, 12],
+                "values": ["ActualVsPredicted", 1, 11, 1, 12],
+                "line": {"color": PALETTE[1], "dash_type": "dash"},
+                "marker": {"type": "none"},
+            }
+        )
+        ch.set_title({"name": "Actual vs predicted (closer to the dashed line = better)"})
+        ch.set_x_axis({"name": "actual", "min": lo, "max": hi})
+        ch.set_y_axis({"name": "predicted", "min": lo, "max": hi})
+        ch.set_size({"width": 720, "height": 520})
+        wa.insert_chart(0, 0, ch)
+
+        # Residual histogram
+        wr = wb.add_worksheet("Residuals")
+        err = predictions["error"].dropna().to_numpy()
+        counts, edges = np.histogram(err, bins=min(30, max(5, len(err) // 10)))
+        hist = pd.DataFrame({"error from": edges[:-1], "error to": edges[1:], "rows": counts})
+        hist.insert(
+            0, "bin", [f"{a:,.4g} .. {b:,.4g}" for a, b in zip(edges[:-1], edges[1:], strict=True)]
+        )
+        _, hr1, _, _ = _write_df(wr, hist, 0, 0, f)
+        ch = wb.add_chart({"type": "column"})
+        ch.add_series(
+            {
+                "name": "rows",
+                "categories": ["Residuals", 1, 0, hr1, 0],
+                "values": ["Residuals", 1, 3, hr1, 3],
+                "fill": {"color": PALETTE[2]},
+                "gap": 5,
+            }
+        )
+        ch.set_title({"name": "Errors (prediction - truth): centred on 0 = no bias"})
+        ch.set_legend({"none": True})
+        ch.set_size({"width": 760, "height": 400})
+        wr.insert_chart(0, 6, ch)
+
+        if ts:  # actual vs forecast over time (sum over series)
+            tcol = ts["time_column"]
+            line = (
+                predictions.groupby(tcol)[["y_true", "y_pred"]]
+                .sum()
+                .reset_index()
+                .sort_values(tcol)
+            )
+            if ts.get("group_column"):
+                line.columns = [tcol, "actual (all series)", "forecast (all series)"]
+            else:
+                line.columns = [tcol, "actual", "forecast"]
+            wf = wb.add_worksheet("Forecast")
+            _, fr1, _, _ = _write_df(wf, line, 0, 0, f)
+            ch = wb.add_chart({"type": "line"})
+            for k, color in ((1, PALETTE[0]), (2, PALETTE[1])):
+                ch.add_series(
+                    {
+                        "name": ["Forecast", 0, k],
+                        "categories": ["Forecast", 1, 0, fr1, 0],
+                        "values": ["Forecast", 1, k, fr1, k],
+                        "line": {"color": color, "width": 1.5},
+                    }
+                )
+            ch.set_title({"name": "Test period: actual vs model (one step ahead)"})
+            ch.set_x_axis({"name": tcol, "num_font": {"rotation": -45}})
+            ch.set_size({"width": 960, "height": 420})
+            wf.insert_chart(0, 4, ch)
+
+        wi = wb.add_worksheet("FeatureImportance")
+        top = importance.head(30)
+        _, ir1, _, _ = _write_df(wi, top, 0, 0, f)
+        ch = wb.add_chart({"type": "bar"})
+        ch.add_series(
+            {
+                "name": "MAE increase",
+                "categories": ["FeatureImportance", 1, 0, ir1, 0],
+                "values": ["FeatureImportance", 1, 1, ir1, 1],
+                "fill": {"color": PALETTE[4]},
+            }
+        )
+        ch.set_title({"name": "Permutation importance: error growth when a column is shuffled"})
+        ch.set_y_axis({"reverse": True})
+        ch.set_legend({"none": True})
+        ch.set_size({"width": 720, "height": max(320, 22 * len(top))})
+        wi.insert_chart(0, 4, ch)
+        wi.set_column(0, 0, 24)
+
+        if trials is not None and len(trials):
+            _trials_sheet(wb, f, trials, run_info.get("hpo_metric", "objective"))
+        if importances:
+            _importance_sheet(wb, f, importances)
+        if config_flat:
+            wc = wb.add_worksheet("Config")
+            _write_df(
+                wc,
+                pd.DataFrame(
+                    {"key": list(config_flat), "value": [str(v) for v in config_flat.values()]}
+                ),
+                0,
+                0,
+                f,
+            )
+    return path

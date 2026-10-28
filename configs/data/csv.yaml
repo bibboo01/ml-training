@@ -1,4 +1,5 @@
 # Bring your own data: any CSV/Parquet/Excel file with a target column.
+# Classify labels, regress numbers (price, demand ...) or forecast a time series – data.task: auto.
 #   uv run mlt-prepare data=csv data.name=churn data.path=data/external/churn.csv data.target=Churn
 # Numeric columns are imputed + scaled, text/categorical columns are imputed + one-hot encoded
 # automatically, so mixed tabular data works without extra code.
@@ -11,4 +12,11 @@ class_names: null        # null = use the values found in the target column
 drop_columns: []         # e.g. [id, customer_id]
 test_size: 0.2
 val_size: 0.2
-stratify: true
+stratify: true           # classification only
+task: auto               # auto | classify | regress (a number) | forecast (a number over time)
+# Forecasting (task: forecast, or auto when time_column is set):
+time_column: null        # e.g. date  (task: forecast with null = look for date / time / ds ...)
+group_column: null       # several series in one file, e.g. shop or product
+lags: [1, 2, 3, 7, 14]   # previous periods used as inputs
+rolling: [7, 28]         # moving mean / std windows
+horizon: 14              # periods ahead for .\run.ps1 find <name>  (no input file)

@@ -49,6 +49,13 @@ def train(cfg: DictConfig) -> dict[str, float]:
     if backend:
         return backend.train(cfg)
 
+    from ml_training.utils import read_json
+
+    if read_json(Path(cfg.paths.processed) / "meta.json").get("task") in ("regress", "forecast"):
+        from ml_training.modeling.regression import train_regression
+
+        return train_regression(cfg)
+
     set_seed(cfg.seed)
     X_tr, y_tr, X_val, y_val, X_te, y_te, meta = load_splits(cfg.paths.processed)
     class_names, n_classes = meta["class_names"], meta["n_classes"]
@@ -258,7 +265,7 @@ def train(cfg: DictConfig) -> dict[str, float]:
 def main(cfg: DictConfig) -> float:
     summary = train(cfg)
     # Returning a float lets Hydra sweepers (e.g. hydra-optuna-sweeper) optimise across runs.
-    return float(summary.get(cfg.hpo.metric, summary["f1"]))
+    return float(summary.get(cfg.hpo.metric, summary.get("f1", summary.get("r2", 0.0))))
 
 
 if __name__ == "__main__":

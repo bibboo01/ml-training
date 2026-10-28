@@ -49,7 +49,12 @@ def load_raw(cfg: DictConfig) -> pd.DataFrame:
             return pd.read_excel(path)
         return pd.read_csv(path, sep=None, engine="python", encoding_errors="replace")
 
-    raise ValueError(f"Unknown data.source: {d.source!r} (use sklearn | csv | openml)")
+    if d.source == "sample":  # generated regression / forecasting tables (tabular_samples.py)
+        from ml_training.tabular_samples import make
+
+        return make(d.sample)
+
+    raise ValueError(f"Unknown data.source: {d.source!r} (use sklearn | csv | openml | sample)")
 
 
 def run(cfg: DictConfig) -> Path:
