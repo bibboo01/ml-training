@@ -10,6 +10,7 @@ automatically, e.g. model=yolo11n on a segmentation dataset trains yolo11n-seg.p
     uv run mlt-train data=mnist160 model=yolo11n         # classification
     uv run mlt-train data=helmet model=yolo11s hpo.n_trials=20 model.hpo_epochs=15
     uv run mlt-train data=helmet model=yolo11n hpo=none model.params.epochs=200
+    uv run python -m ml_training.resume run helmet yolo11s   # continue a stopped training
 """
 
 from __future__ import annotations
@@ -288,6 +289,45 @@ def _train_kwargs(
     return {k: v for k, v in kw.items() if v is not None}
 
 
+STATE_FILE = "run_state.json"
+
+
+def unfinished_checkpoint(train_dir: Path) -> Path | None:
+    """last.pt of a training that stopped before the end (Ultralytics strips the optimizer from
+    last.pt when a training finishes, so an optimizer still inside = can be resumed)."""
+    last = Path(train_dir) / "weights" / "last.pt"
+    if not last.exists():
+        return None
+    import torch
+
+    try:
+        ckpt = torch.load(last, map_location="cpu", weights_only=False)
+    except Exception as e:  # noqa: BLE001 - e.g. file half-written when the PC lost power
+        log.warning("Cannot read %s (%s) – the final training will start again", last, e)
+        return None
+    ok = isinstance(ckpt, dict) and ckpt.get("optimizer") is not None
+    return last if ok and ckpt.get("epoch", -1) >= 0 else None
+
+
+def _hydra_overrides() -> list[str]:
+    try:
+        from hydra.core.hydra_config import HydraConfig
+
+        task = HydraConfig.get().overrides.task
+    except Exception:  # noqa: BLE001 - called outside a Hydra app (tests)
+        return []
+    return [o for o in task if not o.lstrip("+").startswith("resume=")]
+
+
+def write_state(runs_dir: Path, **fields: Any) -> dict[str, Any]:
+    """models/<dataset>/<model>/run_state.json – what `resume` needs to continue a training."""
+    path = Path(runs_dir) / STATE_FILE
+    state = read_json(path) if path.exists() else {}
+    state.update(fields, updated=datetime.now().isoformat(timespec="seconds"))
+    write_json(state, path)
+    return state
+
+
 def train_yolo(cfg: DictConfig) -> dict[str, float]:
     from ultralytics import YOLO
 
@@ -313,6 +353,27 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
     out_dir = ensure_dir(cfg.paths.run_reports)
     eval_split = "test" if meta["n_rows"].get("test") else "val"
 
+    # resume=true: finished Optuna trials are kept and an interrupted final training continues
+    # from its last epoch (models/<dataset>/<model>/final/weights/last.pt)
+    resume = bool(cfg.get("resume"))
+    resume_ckpt = unfinished_checkpoint(runs_dir / "final") if resume else None
+    skip_fit = False  # stopped during evaluation: the trained best.pt is reused
+    if resume:
+        prev = read_json(runs_dir / STATE_FILE) if (runs_dir / STATE_FILE).exists() else {}
+        best_file = runs_dir / "final" / "weights" / "best.pt"
+        skip_fit = prev.get("stage") == "evaluate" and best_file.exists()
+        write_state(runs_dir, status="running", resumes=int(prev.get("resumes", 0)) + 1)
+        how = "keeping finished Optuna trials, final training starts fresh"
+        if resume_ckpt:
+            how = f"final training from {resume_ckpt}"
+        elif skip_fit:
+            how = f"training already finished, evaluating {best_file}"
+        log.info("Resume: %s", how)
+    else:
+        write_state(runs_dir, status="running", stage="start", dataset=cfg.data.name,
+                    model=cfg.model.name, task=task, tune=tune_name, overrides=_hydra_overrides(),
+                    started=datetime.now().isoformat(timespec="seconds"), resumes=0)  # fmt: skip
+
     experiment_id = setup_mlflow(cfg)
     run_name = f"{cfg.model.name}-{datetime.now():%Y%m%d-%H%M%S}"
     processed = Path(cfg.paths.processed)
@@ -329,6 +390,7 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
                 "backend": "ultralytics",
                 "stage": "train",
                 "host_os": platform.system(),
+                "resumed": str(resume),
             }
         )
         mlflow.log_dict(OmegaConf.to_container(cfg, resolve=True), "config/config.yaml")
@@ -341,7 +403,8 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
 
         # ---------- 1. Optuna search (short runs) ----------
         study, best_params, val_summary = None, {}, None
-        if hpo.enabled and hpo.n_trials > 0 and space:
+        if hpo.enabled and hpo.n_trials > 0 and space:  # on resume only the missing trials run
+            write_state(runs_dir, stage="hpo")
 
             def objective(trial: optuna.Trial) -> float:
                 params = suggest_params(trial, space)
@@ -373,27 +436,45 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
                 cfg.model.hpo_epochs,
                 metric,
             )
-            study = run_study(OmegaConf.merge(hpo, {"direction": "maximize"}), cfg.seed, objective)
+            study = run_study(
+                OmegaConf.merge(hpo, {"direction": "maximize"}), cfg.seed, objective, resume=resume
+            )
             best_params = suggest_params(optuna.trial.FixedTrial(study.best_params), space)
             val_summary = study.best_trial.user_attrs.get("val_summary")
             mlflow.log_metric(f"best_val_{metric}", study.best_value)
             log.info("Best val %s = %.4f  params=%s", metric, study.best_value, best_params)
 
         # ---------- 2. Final training ----------
-        model = YOLO(weights)
+        write_state(runs_dir, stage="final")
         t0 = time.perf_counter()
-        train_kw = _train_kwargs(cfg, best_params, task)
-        model.train(
-            data=data_yaml,
-            project=str(runs_dir),
-            name="final",
-            exist_ok=True,
-            plots=True,
-            **train_kw,
-        )
+        if skip_fit:
+            train_dir = runs_dir / "final"
+            best_pt = train_dir / "weights" / "best.pt"
+            done = YOLO(str(best_pt)).ckpt.get("train_args") or {}
+            train_kw = {k: done[k] for k in _train_kwargs(cfg, best_params, task) if k in done}
+        elif resume_ckpt is not None:
+            model = YOLO(str(resume_ckpt))
+            model.train(resume=True, data=data_yaml)  # same settings as before, from last epoch
+            args = model.trainer.args
+            keys = _train_kwargs(cfg, best_params, task)
+            train_kw = {k: getattr(args, k) for k in keys if hasattr(args, k)}
+            mlflow.set_tag("resumed_from", str(resume_ckpt))
+        else:
+            model = YOLO(weights)
+            train_kw = _train_kwargs(cfg, best_params, task)
+            model.train(
+                data=data_yaml,
+                project=str(runs_dir),
+                name="final",
+                exist_ok=True,
+                plots=True,
+                **train_kw,
+            )
         fit_seconds = time.perf_counter() - t0
-        train_dir = Path(model.trainer.save_dir)
-        best_pt = Path(model.trainer.best)
+        if not skip_fit:
+            train_dir = Path(model.trainer.save_dir)
+            best_pt = Path(model.trainer.best)
+        write_state(runs_dir, stage="evaluate")
         log_params({f"model.{k}": v for k, v in train_kw.items()})
         mlflow.log_params(
             {
@@ -580,7 +661,9 @@ def train_yolo(cfg: DictConfig) -> dict[str, float]:
         report=str(report_path) if report_path else None,
         mlflow_run_id=parent.info.run_id,
         data_sha256=lineage_info.get("data sha256"),
+        resumed=resume,
     )
+    write_state(runs_dir, status="finished", stage="done", mlflow_run_id=parent.info.run_id)
     keys = ["top1", "top5"] if task == "classify" else ["map50", "map50_95", "precision", "recall"]
     keys += [k for k in ("TP", "FP", "FN", "TN") if k in s]
     log.info(

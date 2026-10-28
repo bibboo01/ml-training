@@ -49,6 +49,7 @@
 .\run.ps1 fit helmet 26s               # YOLO26 ขนาด s   (all26 = YOLO26 ครบทุกขนาด)
 .\run.ps1 fit D:\datasets\leaves s     # dataset อยู่นอกโปรเจกต์ (คัดลอกเข้า data\raw ให้)
 .\run.ps1 fit coco8-seg n quick        # ลองงาน segment ด้วยชุดตัวอย่าง (ดาวน์โหลดให้เอง)
+.\run.ps1 resume helmet                # เทรนต่อจากที่ค้าง (ไฟดับ / Ctrl+C / เครื่องค้าง) · resume เฉยๆ = ดูรายการที่ค้าง
 .\run.ps1 results helmet               # เทียบผลทุกขนาด
 .\run.ps1 find helmet D:\images        # ทำนายด้วยโมเดลที่ดีที่สุด (หรือ ... D:\clip.mp4 m)
 .\run.ps1 fit helmet s full accurate    # เลือกแบบการจูน (ดูตารางด้านล่าง)
@@ -57,6 +58,21 @@
 .\run.ps1 history                      # ประวัติทุกคำสั่งที่เคยรัน (+ logs\history.xlsx)
 .\run.ps1 help                         # ดูคำสั่งทั้งหมด
 ```
+
+### เทรนค้างกลางทาง → เทรนต่อได้
+
+ทุกการเทรน YOLO จดสถานะไว้ใน `models\<dataset>\<model>\run_state.json` (คำสั่งที่ใช้ + กำลังทำขั้นไหน)
+ถ้าไฟดับ กด Ctrl+C หรือเครื่องค้าง ให้รัน `.\run.ps1 resume helmet` (หรือเมนูข้อ 2 · เมนูจะเตือนสีเหลืองเองถ้ามีงานค้าง)
+ระบบใช้การตั้งค่าเดิมทั้งหมด (preset, ขนาด, epochs ...) แล้วต่อจากจุดที่หยุด:
+
+| หยุดตอน | ตอน resume |
+|---|---|
+| Optuna กำลังค้นหา | trial ที่เสร็จแล้วเก็บไว้ · trial ที่โดนตัดถูกทำเครื่องหมาย FAIL แล้วทำเฉพาะที่ยังขาด |
+| เทรนรอบสุดท้าย | ต่อจาก epoch ล่าสุดใน `last.pt` (optimizer, learning rate, EMA เหมือนไม่เคยหยุด) |
+| ประเมินผล / ทำรายงาน | ไม่เทรนซ้ำ ใช้ `best.pt` ที่ได้แล้ว ประเมินและทำ Excel ใหม่ |
+
+ทุกครั้งที่ resume เป็น MLflow run ใหม่ (tag `resumed=True`) กราฟทุก epoch รวมช่วงก่อนหยุดด้วย
+ถ้าเครื่องมีหลายโมเดลค้าง ให้ระบุขนาด เช่น `.\run.ps1 resume helmet s`
 
 ### เลือกแบบการจูน (tuning preset)
 

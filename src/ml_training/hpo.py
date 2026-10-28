@@ -9,7 +9,7 @@ from typing import Any
 import optuna
 from omegaconf import DictConfig, OmegaConf
 
-from ml_training.utils import sqlite_uri
+from ml_training.utils import log, sqlite_uri
 
 
 def suggest_params(trial: optuna.Trial, search_space: DictConfig | dict) -> dict[str, Any]:
@@ -61,25 +61,40 @@ def run_study(
     hpo_cfg: DictConfig,
     seed: int,
     objective: Callable[[optuna.Trial], float],
+    resume: bool = False,
 ) -> optuna.Study:
+    """resume=True keeps the stored study and only runs the trials that are still missing."""
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     storage = sqlite_uri(hpo_cfg.storage)
-    if storage and not hpo_cfg.load_if_exists:
+    keep = bool(hpo_cfg.load_if_exists or (resume and storage))
+    if storage and not keep:
         # Not resuming: drop an old study with the same name so re-runs just work.
         with contextlib.suppress(KeyError):
             optuna.delete_study(study_name=hpo_cfg.study_name, storage=storage)
     study = optuna.create_study(
         study_name=hpo_cfg.study_name,
         storage=storage,
-        load_if_exists=hpo_cfg.load_if_exists,
+        load_if_exists=keep,
         direction=hpo_cfg.direction,
         sampler=make_sampler(hpo_cfg.sampler, seed),
         pruner=make_pruner(hpo_cfg.pruner),
     )
-    study.optimize(
-        objective, n_trials=hpo_cfg.n_trials, timeout=hpo_cfg.timeout, gc_after_trial=True
-    )
+    n_trials = hpo_cfg.n_trials
+    if resume:
+        # a trial cut off by the crash stays "RUNNING" forever – mark it failed, it is redone
+        for t in study.get_trials(deepcopy=False, states=(optuna.trial.TrialState.RUNNING,)):
+            with contextlib.suppress(Exception):
+                study._storage.set_trial_state_values(t._trial_id, optuna.trial.TrialState.FAIL)
+        n_trials = max(0, n_trials - finished_trials(study))
+        log.info("Optuna resume: %d trials done, %d to go", finished_trials(study), n_trials)
+    if n_trials:
+        study.optimize(objective, n_trials=n_trials, timeout=hpo_cfg.timeout, gc_after_trial=True)
     return study
+
+
+def finished_trials(study: optuna.Study) -> int:
+    done = (optuna.trial.TrialState.COMPLETE, optuna.trial.TrialState.PRUNED)
+    return sum(t.state in done for t in study.trials)
 
 
 def trials_dataframe(study: optuna.Study) -> Any:

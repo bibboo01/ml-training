@@ -193,6 +193,8 @@ def log_epochs(results_csv: Path) -> int:
         return 0
     df = pd.read_csv(results_csv)
     df.columns = [c.strip() for c in df.columns]
+    if "epoch" in df:  # a resumed training repeats the epoch it stopped in
+        df = df.drop_duplicates("epoch", keep="last").reset_index(drop=True)
     cols = [c for c in df.columns if c not in ("epoch", "time")]
     safe = {
         c: "epoch/" + "".join(ch if ch.isalnum() or ch in "_-." else "_" for ch in c) for c in cols

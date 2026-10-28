@@ -8,6 +8,7 @@
     .\run.ps1 fit D:\datasets\leaves s      # dataset outside the project (copied to data\raw)
     .\run.ps1 fit helmet s full accurate    # tuning preset: fast balanced accurate small_data freeze augment custom
     .\run.ps1 fit helmet n full data.task=segment model.params.epochs=200   # extra overrides
+    .\run.ps1 resume helmet                 # continue a training that stopped (power cut, Ctrl+C, crash)
     .\run.ps1 results helmet                # compare all trained sizes (+ reports\helmet\compare.xlsx)
     .\run.ps1 find helmet D:\images         # predict with the best trained model
     .\run.ps1 find helmet D:\cam\clip.mp4 m # ... or with a chosen size
@@ -37,7 +38,7 @@ $env:MLFLOW_DISABLE_AGENT_HINT = "1"
 if (Test-Path .gpu) { $env:UV_NO_SYNC = "1" }
 $CudaIndex = "https://download.pytorch.org/whl/cu126"
 $Sizes = @("yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x")
-$HelpLines = 27
+$HelpLines = 28
 
 function Need-Uv {
     if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
@@ -160,6 +161,36 @@ function Invoke-Explain([string]$Ds, [string]$Size, [string]$Count, [string[]]$E
     }
 }
 
+# unfinished trainings as "dataset|model|stage|time" (from models\<dataset>\<model>\run_state.json)
+function Get-Unfinished {
+    $stages = @{ start = "starting"; hpo = "Optuna search"; final = "final training"; evaluate = "evaluation" }
+    @(Get-ChildItem models\*\*\run_state.json -ErrorAction SilentlyContinue | ForEach-Object {
+        $j = Get-Content $_.FullName -Raw | ConvertFrom-Json
+        if ($j.status -ne "finished") {
+            $st = $stages[[string]$j.stage]; if (-not $st) { $st = [string]$j.stage }
+            "{0}|{1}|stopped in {2}|{3}" -f $_.Directory.Parent.Name, $_.Directory.Name, $st, $j.updated
+        }
+    })
+}
+
+function Invoke-Resume([string]$Ds, [string]$Size) {
+    if (-not $Ds) {
+        $u = Get-Unfinished
+        if (-not $u) { Say "Nothing to resume - every training finished." "Green"; return }
+        Say "Unfinished trainings:"
+        $u | ForEach-Object { $f = $_ -split '\|'; Write-Host ("  {0,-16} {1,-9} {2}  ({3})" -f $f[0], $f[1], $f[2], $f[3]) }
+        Say "Continue one with: .\run.ps1 resume <dataset> [size]"
+        return
+    }
+    $name = (Get-Dataset $Ds).Name
+    $m = @(); if ($Size) { $m = @((Get-Sizes $Size)[0]) }
+    uv run python -m ml_training.resume run $name @m
+    if ($LASTEXITCODE -eq 0) {
+        $done = @(Get-ChildItem "reports\$name" -Recurse -Filter report.xlsx -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+        if ($done) { $script:LastReport = $done[0].FullName; Say "Finished. Excel report: $($script:LastReport)" "Green" }
+    }
+}
+
 function Invoke-Clean([string[]]$A) {
     if (-not $A -or -not $A[0]) { throw "Usage: .\run.ps1 clean <dataset|all> [raw]" }
     $flags = @()
@@ -233,8 +264,11 @@ function Show-TuningMenu {
 function Show-Menu {
     while ($true) {
         Say "`n========== ML Training =========="
+        $u = Get-Unfinished
+        if ($u) { Say ("{0} training(s) stopped before the end - choose 2 to continue: {1}" -f $u.Count, (($u | ForEach-Object { ($_ -split '\|')[0..1] -join ' ' }) -join ', ')) "Yellow" }
         $i = Read-Choice "Choose" @(
             "Train YOLO (detect / segment / classify / pose / obb)",
+            "Resume a training that stopped (power cut / Ctrl+C / crash)",
             "Predict images / video with a trained model",
             "Compare trained YOLO models",
             "Explain a model: XAI heatmaps + why it detects + statistics Excel",
@@ -264,25 +298,36 @@ function Show-Menu {
                     if ($script:LastReport -and (Test-Path $script:LastReport) -and ((Read-Host "Open the Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
                 }
                 1 {
+                    $u = Get-Unfinished
+                    if (-not $u) { Say "Nothing to resume - every training finished." "Green"; continue }
+                    Say "`nUnfinished trainings:"
+                    $k = Read-Choice "Choose" @($u | ForEach-Object { $f = $_ -split '\|'; "{0,-16} {1,-9} {2}  ({3})" -f $f[0], $f[1], $f[2], $f[3] })
+                    $f = $u[$k] -split '\|'
+                    $script:LastReport = $null
+                    uv run python -m ml_training.resume run $f[0] $f[1]
+                    $x = "reports\$($f[0])\$($f[1])\report.xlsx"
+                    if ($LASTEXITCODE -eq 0 -and (Test-Path $x) -and ((Read-Host "Open the Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $x }
+                }
+                2 {
                     $ds = Select-Dataset -Trained
                     $src = Read-Host "Image, folder or video path (drag it here) or URL"
                     Invoke-Find $ds $src "" @()
                 }
-                2 { $ds = Select-Dataset -Trained; Show-Results $ds; $x = "reports\$ds\compare.xlsx"; if ((Test-Path $x) -and ((Read-Host "Open compare.xlsx? (y/n) [y]") -ne "n")) { Invoke-Item $x } }
-                3 {
+                3 { $ds = Select-Dataset -Trained; Show-Results $ds; $x = "reports\$ds\compare.xlsx"; if ((Test-Path $x) -and ((Read-Host "Open compare.xlsx? (y/n) [y]") -ne "n")) { Invoke-Item $x } }
+                4 {
                     $ds = Select-Dataset -Trained
                     $n = Read-Host "How many test images to analyse? [100]"
                     $script:LastReport = $null
                     Invoke-Explain $ds "" $n @()
                     if ($script:LastReport -and ((Read-Host "Open the XAI Excel report? (y/n) [y]") -ne "n")) { Invoke-Item $script:LastReport }
                 }
-                4 { Show-TuningMenu }
-                5 { Start-Process "http://127.0.0.1:5000"; uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db" --port 5000 }
-                6 {
+                5 { Show-TuningMenu }
+                6 { Start-Process "http://127.0.0.1:5000"; uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db" --port 5000 }
+                7 {
                     $g = Read-Choice "Install for" @("CPU only", "NVIDIA GPU (CUDA)")
                     if ($g -eq 0) { & $PSCommandPath setup-yolo } else { & $PSCommandPath setup-gpu }
                 }
-                7 {
+                8 {
                     $names = @(@("data\processed", "models", "reports") | ForEach-Object { Get-ChildItem $_ -Directory -ErrorAction SilentlyContinue } | ForEach-Object Name | Where-Object { "pretrained", "runs", "figures" -notcontains $_ } | Sort-Object -Unique)
                     Say "`nClean what?"
                     $opts = $names + @("ALL datasets (every result + MLflow / Optuna history)")
@@ -291,13 +336,13 @@ function Show-Menu {
                     $raw = (Read-Host "Also delete the raw dataset in data\raw? (y/n) [n]") -eq "y"
                     if ($raw) { Invoke-Clean @($target, "raw") } else { Invoke-Clean @($target) }
                 }
-                8 {
+                9 {
                     uv run python -m ml_training.lineage 30 --excel
                     if ((Test-Path logs\history.xlsx) -and ((Read-Host "Open history.xlsx? (y/n) [n]") -eq "y")) { Invoke-Item logs\history.xlsx }
                 }
-                9 { uv run dvc repro; uv run dvc metrics show }
-                10 { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
-                11 { return }
+                10 { uv run dvc repro; uv run dvc metrics show }
+                11 { (Get-Content $PSCommandPath -TotalCount $HelpLines) -join "`n" | Write-Host }
+                12 { return }
             }
         } catch { Say "Error: $($_.Exception.Message)" "Red" }
     }
@@ -323,6 +368,7 @@ switch ($Task) {
         break
     }
     "results" { Show-Results $Rest[0] }
+    "resume" { Invoke-Resume $Rest[0] $Rest[1]; if ($script:LastReport) { Say "Report: $($script:LastReport)" } }
     { $_ -in "explain", "xai" } {
         # explain <dataset> [size] [images] [key=value ...]
         $a = @($Rest); $size = $null; $count = $null; $extra = @()

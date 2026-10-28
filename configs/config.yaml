@@ -9,6 +9,7 @@ defaults:
   - _self_
 
 seed: 42
+resume: false            # true = continue a stopped YOLO training (use .\run.ps1 resume <dataset>)
 experiment_name: ${data.name}
 
 paths:
