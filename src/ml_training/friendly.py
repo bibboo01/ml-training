@@ -28,8 +28,8 @@ PACKAGES = {
 
 def _setup() -> str:
     return tr(
-        "รัน .\\run.ps1 setup-gpu (มีการ์ดจอ NVIDIA) หรือ .\\run.ps1 setup-yolo (CPU) แล้วลองใหม่",
-        "run .\\run.ps1 setup-gpu (NVIDIA GPU) or .\\run.ps1 setup-yolo (CPU), then try again",
+        "พิมพ์ .\\run.ps1 setup (ตรวจการ์ดจอให้เอง) แล้วลองใหม่",
+        "type .\\run.ps1 setup (it finds the GPU itself), then try again",
     )
 
 
@@ -40,11 +40,18 @@ def explain(e: BaseException) -> str:
         mod = (e.name or "").split(".")[0]
         if mod == "easyocr":
             return tr(
-                "ยังไม่ได้ติดตั้ง OCR – รัน .\\run.ps1 setup-ocr แล้วลองใหม่",
-                "OCR is not installed – run .\\run.ps1 setup-ocr, then try again",
+                "ยังไม่ได้ติดตั้ง OCR – พิมพ์ .\\run.ps1 setup-ocr แล้วลองใหม่",
+                "OCR is not installed – type .\\run.ps1 setup-ocr, then try again",
             )
         th, en = PACKAGES.get(mod, (mod, mod))
         return tr(f"ยังไม่ได้ติดตั้งส่วน {th} – {_setup()}", f"{en} is not installed – {_setup()}")
+    if "libgl.so" in low or "libglib" in low or "libgthread" in low:
+        return tr(
+            "ขาดไลบรารีระบบของ OpenCV – พิมพ์ run setup-system "
+            "(หรือ sudo apt install -y libgl1 libglib2.0-0)",
+            "OpenCV system libraries are missing – type run setup-system "
+            "(or sudo apt install -y libgl1 libglib2.0-0)",
+        )
     if "out of memory" in low:
         return tr(
             "หน่วยความจำการ์ดจอ (VRAM) ไม่พอ – ลดขนาด batch เช่น model.params.batch_size=8 "
@@ -80,10 +87,9 @@ def explain(e: BaseException) -> str:
         )
     if "cuda" in low and ("driver" in low or "no kernel image" in low or "not compiled" in low):
         return tr(
-            "การ์ดจอ / ไดรเวอร์ไม่ตรงกับ PyTorch – "
-            "อัปเดตไดรเวอร์ NVIDIA แล้วรัน .\\run.ps1 setup-gpu อีกครั้ง",
+            "การ์ดจอ / ไดรเวอร์ไม่ตรงกับ PyTorch – อัปเดตไดรเวอร์ NVIDIA แล้วพิมพ์ .\\run.ps1 setup อีกครั้ง",
             "GPU / driver does not match PyTorch – update the NVIDIA driver, "
-            "then run .\\run.ps1 setup-gpu again",
+            "then type .\\run.ps1 setup again",
         )
     if isinstance(e, FileNotFoundError):
         if any(k in low for k in ("models", ".pt", ".joblib", "trained model")):

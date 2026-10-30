@@ -32,6 +32,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from ml_training import lineage, runstate
 from ml_training.hpo import param_importances, run_study, suggest_params, trials_dataframe
+from ml_training.i18n import RUN
 from ml_training.metrics import EvalResult, evaluate
 from ml_training.reporting.excel import write_report
 from ml_training.tracking import log_params, setup_mlflow
@@ -936,9 +937,7 @@ def predict_vision(cfg: DictConfig) -> Path:
         cfg.get("weights") or Path(cfg.paths.models) / cfg.data.name / cfg.model.name / "model"
     )
     if not (model_dir / "vision.json").exists():
-        raise FileNotFoundError(
-            f"No trained model in {model_dir} – train first (.\\run.ps1 vision ...)"
-        )
+        raise FileNotFoundError(f"No trained model in {model_dir} – train first ({RUN} vision ...)")
     model, meta = load_trained(model_dir)
     if cfg.get("input"):
         src = Path(str(cfg.input))

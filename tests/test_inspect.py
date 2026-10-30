@@ -63,7 +63,7 @@ def test_tables_and_texts(tmp_path):
 
 def test_friendly_hints():
     assert "Excel" in friendly.explain(PermissionError("report.xlsx"))
-    assert "setup-gpu" in friendly.explain(ModuleNotFoundError("x", name="lightgbm"))
+    assert "run setup" in friendly.explain(ModuleNotFoundError("x", name="lightgbm"))
     assert "VRAM" in friendly.explain(RuntimeError("CUDA out of memory. Tried to allocate"))
     assert friendly.explain(ValueError("something else")) == ""
 
@@ -73,3 +73,9 @@ def test_thai_language(monkeypatch):
     assert "ปิด" in friendly.explain(PermissionError("report.xlsx"))
     monkeypatch.setenv("MLT_LANG", "en")
     assert "close it" in friendly.explain(PermissionError("report.xlsx"))
+
+
+def test_messages_name_the_run_command():
+    from ml_training.i18n import local
+
+    assert local("type .\\run.ps1 setup") == "type run setup"

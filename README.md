@@ -17,9 +17,27 @@
 
 ## เริ่มต้นใน 3 ขั้น (ไม่ต้องตั้งค่าอะไร)
 
-1. ดับเบิลคลิก **`run.bat`** → เลือก `7) More tools` → `Install / update` (ครั้งแรกครั้งเดียว) และ `Check this computer` ดูว่าพร้อมไหม
-2. เลือก **`1) Train a new model`** → **ลากโฟลเดอร์หรือไฟล์ข้อมูลมาวาง** ในหน้าต่าง แล้วกด Enter
-3. ระบบบอกว่าเจอข้อมูลอะไร เหมาะกับงานไหน → เลือก `Quick` / `Standard` / `Most accurate` → กด Enter เริ่มเทรน → เปิดรายงาน Excel ได้ทันที
+1. **ติดตั้งครั้งแรก**: Windows ดับเบิลคลิก `run.bat` → `7) More tools` → `Install / update` · Ubuntu พิมพ์ `bash run.sh setup`
+   (หรือ Windows แบบพิมพ์ใน PowerShell: `.\run.ps1 setup`) ระบบหาการ์ดจอเอง ติดตั้งทุกอย่าง ตรวจเครื่อง และ**ติดตั้งคำสั่ง `run`**
+   ให้ใช้ได้จากทุกโฟลเดอร์ (เปิด terminal ใหม่หนึ่งครั้ง)
+2. พิมพ์ **`run`** (เมนู) แล้วเลือก `1) Train a new model` หรือพิมพ์ตรง ๆ **`run train D:\data\helmet`** (ลากโฟลเดอร์มาวางได้)
+3. ระบบบอกว่าเจอข้อมูลอะไร เหมาะกับงานไหน → เลือก `Quick` / `Standard` / `Most accurate` → เทรน → ได้รายงาน Excel
+
+### คำสั่งที่ใช้บ่อย (เหมือนกันทั้ง Windows และ Ubuntu)
+
+| คำสั่ง | ทำอะไร |
+|---|---|
+| `run` | เมนู |
+| `run setup` | ติดตั้ง / อัปเดตทุกอย่าง (หาการ์ดจอเอง) แล้วตรวจเครื่อง |
+| `run check` | ตรวจเครื่อง: การ์ดจอ ไดรเวอร์ ส่วนที่ติดตั้ง พื้นที่ดิสก์ |
+| `run train <ข้อมูล>` | ดูข้อมูล เลือกงานและโมเดลให้ แล้วเทรน · ต่อท้าย `quick` (ไม่กี่นาที) หรือ `best` (แม่นที่สุด) เพื่อไม่ต้องตอบคำถาม |
+| `run predict <ชื่อ> <ไฟล์/โฟลเดอร์>` | ทำนายด้วยโมเดลที่ดีที่สุด (ภาพ วิดีโอ CSV PDF ประโยค · ข้อมูลตามเวลาใส่ตัวเลข เช่น `30` = พยากรณ์ 30 งวด) |
+| `run results <ชื่อ>` | คะแนนทุกโมเดล + `compare.xlsx` |
+| `run status` | โมเดลที่เทรนแล้ว งานที่ค้าง (และงานเบื้องหลังบน Ubuntu) |
+| `run resume` | เทรนต่อจากที่ค้าง (ไฟดับ Ctrl+C เครื่องค้าง) |
+| `run ui` | MLflow: ประวัติทุกการเทรน |
+| `run clean <ชื่อ>` | ลบผลของชุดข้อมูล (ถามก่อนลบ) |
+| `run help` | คำสั่งทั้งหมด รวมแบบเลือกเองทุกอย่าง (`run fit` / `text` / `vision` / `table`) |
 
 | ลากอะไรมาวาง | ระบบเลือกให้ |
 |---|---|
@@ -32,7 +50,36 @@
 
 ไฟล์ zip ให้แตกไฟล์ก่อน · ภาพที่ยังไม่มีป้ายกำกับ ระบบจะบอกวิธีทำป้าย · คอลัมน์รหัส (เช่น `customer_id`) ถูกตัดออกให้อัตโนมัติ ·
 ถ้าผิดพลาด ระบบอธิบายว่าต้องแก้อะไร (เช่น ปิดไฟล์ Excel ที่เปิดค้าง, VRAM ไม่พอ ให้ลด batch) ·
-เมนูและข้อความเป็นภาษาอังกฤษ เปลี่ยนเป็นภาษาไทยได้ที่ `More tools > Language` (จำค่าไว้ในไฟล์ `.lang`) · คำสั่งเดียวกันแบบพิมพ์: `.\run.ps1 auto D:\data\helmet`
+เมนูและข้อความเป็นภาษาอังกฤษ เปลี่ยนเป็นภาษาไทยได้ที่ `More tools > Language` (จำค่าไว้ในไฟล์ `.lang`)
+
+---
+
+## ใช้บน Ubuntu server (`run.sh`)
+
+คำสั่งเหมือน Windows ทุกอย่าง และเพิ่มสิ่งที่ server ต้องใช้
+
+```bash
+# ครั้งแรก (คัดลอกโฟลเดอร์โปรเจกต์ไปที่ server ก่อน เช่น scp -r หรือ git clone)
+cd ml-training
+bash run.sh setup             # หาการ์ดจอ + เลือก PyTorch ให้ตรงกับไดรเวอร์ + ถามติดตั้ง libGL (sudo) + ติดตั้งคำสั่ง run
+source ~/.profile             # (ครั้งแรกครั้งเดียว) หรือเปิด SSH ใหม่ ให้รู้จักคำสั่ง run
+
+run                           # เมนู
+run train ~/data/helmet       # ดูข้อมูล เลือกงานและโมเดล แล้วเทรน (อยู่โฟลเดอร์ไหนก็ได้ ใส่ path แบบสั้นได้)
+```
+
+**เทรนนาน ๆ แล้วปิด SSH ได้**: ใส่ `bg` นำหน้าคำสั่งใดก็ได้ งานจะทำต่อแม้ SSH หลุด (`run train` ในเมนูก็ถามให้)
+
+```bash
+run bg train ~/data/helmet best   # เริ่มเทรนเบื้องหลัง → log อยู่ใน logs/bg/
+run logs                          # ดูความคืบหน้าล่าสุด (Ctrl+C = เลิกดู งานไม่หยุด)
+run status                        # โมเดล งานค้าง งานเบื้องหลัง
+run stop                          # หยุดงานเบื้องหลัง (เทรนต่อทีหลังด้วย run resume)
+```
+
+**MLflow / Optuna บน server**: `run ui` (หรือ `run optuna`) จะพิมพ์คำสั่ง SSH tunnel ให้ รันบนเครื่องตัวเอง เช่น
+`ssh -N -L 5000:localhost:5000 user@server` แล้วเปิด http://localhost:5000 (ไม่เปิดพอร์ตออกอินเทอร์เน็ต)
+· รายงาน Excel คัดลอกมาเปิดด้วย `scp` (ระบบพิมพ์คำสั่งให้หลังเทรนเสร็จ)
 
 ---
 
@@ -49,44 +96,34 @@
 | classify | จำแนกทั้งรูป | โฟลเดอร์ละ class: `train/<class>/*.jpg` หรือ `<class>/*.jpg` | `mnist160` |
 
 1. วางโฟลเดอร์ dataset (export แบบ YOLO จาก Roboflow / CVAT / Label Studio) ไว้ที่ `data\raw\<ชื่อ>\` เช่น `data\raw\helmet\`
-2. **ดับเบิลคลิก `run.bat`** แล้วเลือกจากเมนู (ไม่ต้องแก้ ExecutionPolicy):
+2. พิมพ์ `run train helmet` (หรือ `run` แล้วเลือก `1) Train a new model`) ระบบดูไฟล์ป้ายแล้วเลือกงาน YOLO ให้เอง
 
-```
-========== ML Training ==========
-  1) Train YOLO (detect / segment / classify / pose / obb)  <- dataset > YOLO11/26 > ขนาด > quick/full
-  2) Predict images / video with a trained model            <- ลาก/วางโฟลเดอร์รูปหรือวิดีโอได้เลย
-  3) Compare trained YOLO models                            <- ตารางเทียบทุกขนาด + compare.xlsx
-  4) Open MLflow UI
-  5) Install / update (CPU or NVIDIA GPU)                   <- ทำข้อนี้ก่อนครั้งแรก
-  ...
-```
-
-หรือพิมพ์คำสั่งสั้นใน PowerShell (ระบบเตรียม/แบ่งข้อมูลให้เองก่อนเทรน):
+หรือเลือกเองทุกอย่าง (ระบบเตรียม/แบ่งข้อมูลให้เองก่อนเทรน):
 
 ```powershell
-.\run.ps1 fit helmet                   # yolo11n แบบเต็ม (Optuna + 100 epochs)
-.\run.ps1 fit helmet m quick           # yolo11m แบบลองเร็ว (ไม่จูน, 30 epochs)
-.\run.ps1 fit helmet all quick         # ครบทุกขนาด n,s,m,l,x
-.\run.ps1 fit helmet 26s               # YOLO26 ขนาด s   (all26 = YOLO26 ครบทุกขนาด)
-.\run.ps1 fit D:\datasets\leaves s     # dataset อยู่นอกโปรเจกต์ (คัดลอกเข้า data\raw ให้)
-.\run.ps1 fit coco8-seg n quick        # ลองงาน segment ด้วยชุดตัวอย่าง (ดาวน์โหลดให้เอง)
-.\run.ps1 text reviews                 # ข้อความ / เอกสาร (ภาษาไทยได้) ดูหัวข้อ "ข้อความ และเอกสาร"
-.\run.ps1 vision flowers               # จัดหมวดภาพ ViT / ConvNeXt / EfficientNet หรือ segmentation ดูหัวข้อ "ภาพแบบอื่น"
-.\run.ps1 table sales.csv target=sales  # ตาราง: จัดหมวด / ทายตัวเลข / พยากรณ์ ดูหัวข้อ "ข้อมูลตาราง"
-.\run.ps1 resume helmet                # เทรนต่อจากที่ค้าง (ไฟดับ / Ctrl+C / เครื่องค้าง) · resume เฉยๆ = ดูรายการที่ค้าง
-.\run.ps1 results helmet               # เทียบผลทุกขนาด
-.\run.ps1 find helmet D:\images        # ทำนายด้วยโมเดลที่ดีที่สุด (หรือ ... D:\clip.mp4 m)
-.\run.ps1 fit helmet s full accurate    # เลือกแบบการจูน (ดูตารางด้านล่าง)
-.\run.ps1 clean helmet                 # ลบผลเทรนของ helmet (ถามยืนยันก่อน · เติม raw = ลบรูปด้วย)
-.\run.ps1 clean all                    # ลบผลทั้งหมด + ประวัติ MLflow / Optuna
-.\run.ps1 history                      # ประวัติทุกคำสั่งที่เคยรัน (+ logs\history.xlsx)
-.\run.ps1 help                         # ดูคำสั่งทั้งหมด
+run fit helmet                   # yolo11n แบบเต็ม (Optuna + 100 epochs)
+run fit helmet m quick           # yolo11m แบบลองเร็ว (ไม่จูน, 30 epochs)
+run fit helmet all quick         # ครบทุกขนาด n,s,m,l,x
+run fit helmet 26s               # YOLO26 ขนาด s   (all26 = YOLO26 ครบทุกขนาด)
+run fit D:\datasets\leaves s     # dataset อยู่นอกโปรเจกต์ (คัดลอกเข้า data\raw ให้)
+run fit coco8-seg n quick        # ลองงาน segment ด้วยชุดตัวอย่าง (ดาวน์โหลดให้เอง)
+run text reviews                 # ข้อความ / เอกสาร (ภาษาไทยได้) ดูหัวข้อ "ข้อความ และเอกสาร"
+run vision flowers               # จัดหมวดภาพ ViT / ConvNeXt / EfficientNet หรือ segmentation ดูหัวข้อ "ภาพแบบอื่น"
+run table sales.csv target=sales  # ตาราง: จัดหมวด / ทายตัวเลข / พยากรณ์ ดูหัวข้อ "ข้อมูลตาราง"
+run resume helmet                # เทรนต่อจากที่ค้าง (ไฟดับ / Ctrl+C / เครื่องค้าง) · resume เฉยๆ = ดูรายการที่ค้าง
+run results helmet               # เทียบผลทุกขนาด
+run predict helmet D:\images     # ทำนายด้วยโมเดลที่ดีที่สุด (หรือ ... D:\clip.mp4 m)
+run fit helmet s full accurate    # เลือกแบบการจูน (ดูตารางด้านล่าง)
+run clean helmet                 # ลบผลเทรนของ helmet (ถามยืนยันก่อน · เติม raw = ลบรูปด้วย)
+run clean all                    # ลบผลทั้งหมด + ประวัติ MLflow / Optuna
+run history                      # ประวัติทุกคำสั่งที่เคยรัน (+ logs\history.xlsx)
+run help                         # ดูคำสั่งทั้งหมด
 ```
 
 ### เทรนค้างกลางทาง → เทรนต่อได้
 
 ทุกการเทรน YOLO จดสถานะไว้ใน `models\<dataset>\<model>\run_state.json` (คำสั่งที่ใช้ + กำลังทำขั้นไหน)
-ถ้าไฟดับ กด Ctrl+C หรือเครื่องค้าง ให้รัน `.\run.ps1 resume helmet` (หรือเมนูข้อ 5 "Resume a training that stopped" · เมนูจะเตือนสีเหลืองเองถ้ามีงานค้าง)
+ถ้าไฟดับ กด Ctrl+C หรือเครื่องค้าง ให้รัน `run resume helmet` (หรือเมนูข้อ 5 "Resume a training that stopped" · เมนูจะเตือนสีเหลืองเองถ้ามีงานค้าง)
 ระบบใช้การตั้งค่าเดิมทั้งหมด (preset, ขนาด, epochs ...) แล้วต่อจากจุดที่หยุด:
 
 | หยุดตอน | ตอน resume |
@@ -96,7 +133,7 @@
 | ประเมินผล / ทำรายงาน | ไม่เทรนซ้ำ ใช้ `best.pt` ที่ได้แล้ว ประเมินและทำ Excel ใหม่ |
 
 ทุกครั้งที่ resume เป็น MLflow run ใหม่ (tag `resumed=True`) กราฟทุก epoch รวมช่วงก่อนหยุดด้วย
-ถ้าเครื่องมีหลายโมเดลค้าง ให้ระบุขนาด เช่น `.\run.ps1 resume helmet s`
+ถ้าเครื่องมีหลายโมเดลค้าง ให้ระบุขนาด เช่น `run resume helmet s`
 
 ### เลือกแบบการจูน (tuning preset)
 
@@ -113,17 +150,17 @@
 | `augment` | โมเดลจำข้อมูลเกิน (overfit) | จูนเฉพาะ augmentation |
 | `custom` | ปรับเองทุกอย่าง | แก้ `configs\tune\custom.yaml` ได้เลย มีทุกค่าที่ใช้บ่อยพร้อมคำอธิบาย |
 
-- **ทำ preset ของตัวเองแบบง่าย**: เมนู *More tools > YOLO tuning presets* (หรือ `.\run.ps1 tune`) → *Create my preset*
+- **ทำ preset ของตัวเองแบบง่าย**: เมนู *More tools > YOLO tuning presets* (หรือ `run tune`) → *Create my preset*
   เลือก preset ตั้งต้น แล้วตอบแค่ค่าที่ใช้บ่อย (กด Enter = ใช้ค่าเดิม): epochs, ขนาดภาพ, batch, patience, freeze,
   optimizer, device, จำนวนรอบ Optuna, epochs ต่อรอบ → ตั้งชื่อ เช่น `odb_gpu` → ขึ้นเป็นตัวเลือกตอนเทรนทันที
 - ปรับละเอียด: เมนูเดียวกัน → *Edit a preset in Notepad* ปิด Notepad แล้วระบบตรวจไฟล์ให้ว่าใช้ได้
-- ค่าที่พิมพ์ต่อท้ายชนะ preset เสมอ เช่น `.\run.ps1 fit helmet accurate hpo.n_trials=80 model.params.imgsz=960`
+- ค่าที่พิมพ์ต่อท้ายชนะ preset เสมอ เช่น `run fit helmet accurate hpo.n_trials=80 model.params.imgsz=960`
 - โหมด `quick` ยังใช้ค่าคงที่ของ preset (เช่น freeze) แต่ข้ามการจูนและเทรน 30 epochs
 - preset ที่ใช้ถูกบันทึกใน Excel (Summary) และ MLflow (param `tune`) เพื่อเทียบย้อนหลังได้
 
 ### ระบบเก็บประวัติอะไรบ้าง
 
-ทุกการเทรน (ทั้ง YOLO และข้อมูลตาราง) เป็น 1 run ใน MLflow (`.\run.ps1 ui`) ที่เก็บ:
+ทุกการเทรน (ทั้ง YOLO และข้อมูลตาราง) เป็น 1 run ใน MLflow (`run ui`) ที่เก็บ:
 
 | หมวด | สิ่งที่เก็บ | ดูที่ไหนใน MLflow |
 |---|---|---|
@@ -139,20 +176,20 @@
 | XAI | ทุกครั้งที่ explain: ตัวเลขสรุป, Excel XAI, ภาพ heatmap ใน Gallery | run ที่ tag `stage=xai` |
 
 นอกจากนี้ทุกคำสั่ง (prepare / featurize / train / predict / explain / clean) ถูกจดเป็น 1 บรรทัดใน `logs\history.jsonl`
-ดูด้วย `.\run.ps1 history` (หรือเมนู *More tools > History*) ได้ตาราง + `logs\history.xlsx` · คำสั่ง `clean` ไม่ลบไฟล์นี้
+ดูด้วย `run history` (หรือเมนู *More tools > History*) ได้ตาราง + `logs\history.xlsx` · คำสั่ง `clean` ไม่ลบไฟล์นี้
 และการลบเองก็ถูกจดไว้ด้วย · ปิดบางอย่างได้ใน `configs/config.yaml` หมวด `mlflow:`
 (`system_metrics`, `log_weights`, `log_predictions`)
 
-ต่อท้ายด้วยค่า Hydra ได้เสมอ เช่น `.\run.ps1 fit helmet n full model.params.epochs=200 model.params.batch=-1`
+ต่อท้ายด้วยค่า Hydra ได้เสมอ เช่น `run fit helmet n full model.params.epochs=200 model.params.batch=-1`
 ถ้าระบบเดางานผิด บังคับได้ด้วย `data.task=segment` (หรือ detect / pose / obb / classify) · คำสั่งเดิม `detect` ยังใช้ได้
 รายละเอียดเชิงลึกอยู่ในหัวข้อ 5
 
 ### XAI: โมเดลมองตรงไหน และทำไมถึงตัดสินแบบนั้น
 
 ```powershell
-.\run.ps1 explain helmet            # โมเดลที่ดีที่สุดของ helmet, ภาพ test 100 ภาพ
-.\run.ps1 explain helmet m 300      # ขนาด m, 300 ภาพ  (หรือเมนูข้อ 6 "Explain a YOLO model")
-.\run.ps1 explain helmet xai.conf=0.4 xai.split=val   # ปรับค่าอื่นได้ (ดู configs/config.yaml หมวด xai:)
+run explain helmet            # โมเดลที่ดีที่สุดของ helmet, ภาพ test 100 ภาพ
+run explain helmet m 300      # ขนาด m, 300 ภาพ  (หรือเมนูข้อ 6 "Explain a YOLO model")
+run explain helmet xai.conf=0.4 xai.split=val   # ปรับค่าอื่นได้ (ดู configs/config.yaml หมวด xai:)
 ```
 
 ทำได้ทุกงาน (detect / segment / pose / obb / classify) ผลอยู่ที่ `reports\<dataset>\<model>\xai\`
@@ -174,17 +211,17 @@
 
 classify จะได้ Confusion matrix, คู่ class ที่สับสนบ่อย, ภาพที่ผิดทั้งที่มั่นใจ และ Grad-CAM ของทั้ง class ที่ทายและ class ที่ถูก
 
-### ข้อความ และเอกสาร (ภาษาไทยได้) – `.\run.ps1 text`
+### ข้อความ และเอกสาร (ภาษาไทยได้) – `run text`
 
-ติดตั้งครั้งแรก (หรือหลังอัปเดตนี้) ให้รัน `.\run.ps1 setup-gpu` (หรือ `setup-yolo` ถ้าไม่มี GPU) อีกครั้ง
-เพื่อลง transformers / PyThaiNLP · ถ้าต้องอ่านเอกสารสแกนหรือรูปภาพ เพิ่ม `.\run.ps1 setup-ocr`
+ติดตั้งครั้งแรก (หรือหลังอัปเดตนี้) ให้รัน `run setup` อีกครั้ง
+เพื่อลง transformers / PyThaiNLP · ถ้าต้องอ่านเอกสารสแกนหรือรูปภาพ เพิ่ม `run setup-ocr`
 
 ```powershell
-.\run.ps1 text thai-sentiment tiny quick     # ลองระบบด้วยชุดตัวอย่าง (ไม่ต้องดาวน์โหลด)
-.\run.ps1 text reviews                       # data\raw\reviews (ไฟล์หรือโฟลเดอร์) · โมเดล base · จูน Optuna 8 รอบ
-.\run.ps1 text D:\data\invoices thai         # โฟลเดอร์เอกสารนอกโปรเจกต์ · โมเดลภาษาไทย
-.\run.ps1 find reviews "ส่งไว ของดีมาก"         # ทำนายประโยคเดียว
-.\run.ps1 find invoices D:\scans              # ทำนายทั้งโฟลเดอร์ (PDF / Word / รูป / txt) หรือไฟล์ CSV
+run text thai-sentiment tiny quick     # ลองระบบด้วยชุดตัวอย่าง (ไม่ต้องดาวน์โหลด)
+run text reviews                       # data\raw\reviews (ไฟล์หรือโฟลเดอร์) · โมเดล base · จูน Optuna 8 รอบ
+run text D:\data\invoices thai         # โฟลเดอร์เอกสารนอกโปรเจกต์ · โมเดลภาษาไทย
+run predict reviews "ส่งไว ของดีมาก"         # ทำนายประโยคเดียว
+run predict invoices D:\scans              # ทำนายทั้งโฟลเดอร์ (PDF / Word / รูป / txt) หรือไฟล์ CSV
 ```
 
 ระบบดูไฟล์แล้วเลือกงานเอง (บังคับได้ด้วย `data.task=classify` หรือ `data.task=ner`):
@@ -206,23 +243,23 @@ PDF ใช้ข้อความในไฟล์ · PDF สแกนแล�
 | `thai` | WangchanBERTa | ข้อความภาษาไทยล้วน มักดีที่สุด |
 | `large` | xlm-roberta-large | แม่นที่สุด ต้อง GPU 12 GB+ |
 
-ใช้โมเดลอื่นจาก HuggingFace ได้ทุกตัว เช่น `.\run.ps1 text reviews base model.pretrained=microsoft/mdeberta-v3-base`
+ใช้โมเดลอื่นจาก HuggingFace ได้ทุกตัว เช่น `run text reviews base model.pretrained=microsoft/mdeberta-v3-base`
 ได้ทุกอย่างเหมือน YOLO: Optuna จูน (lr, batch, weight decay, warmup), Excel (Summary, Confusion, PerClass = TP/FP/FN ต่อ class
 หรือต่อชนิดข้อมูลสำหรับ NER, TrainingHistory, Predictions), MLflow + Model Registry, history, `resume` และ `results` เทียบโมเดล
 ตัวอย่างในตัว: `thai-sentiment` (รีวิว 3 อารมณ์), `thai-ner` (ชื่อ บริษัท สถานที่ วันที่ เงิน), `thai-docs` (เอกสาร 4 ประเภท)
 
-### ภาพแบบอื่นนอกจาก YOLO – `.\run.ps1 vision`
+### ภาพแบบอื่นนอกจาก YOLO – `run vision`
 
 จัดหมวดภาพด้วยโมเดลมาตรฐาน (ResNet / EfficientNet / ConvNeXt / ViT จาก timm) และ **semantic segmentation**
-(บอก class ทุกพิกเซล เช่น ถนน รอยร้าว แผล พื้นที่เพาะปลูก) ด้วย SegFormer · ติดตั้งครั้งแรกหลังอัปเดตนี้ให้รัน `.\run.ps1 setup-gpu` อีกครั้ง
+(บอก class ทุกพิกเซล เช่น ถนน รอยร้าว แผล พื้นที่เพาะปลูก) ด้วย SegFormer · ติดตั้งครั้งแรกหลังอัปเดตนี้ให้รัน `run setup` อีกครั้ง
 
 ```powershell
-.\run.ps1 vision shapes                     # ลองระบบ: จัดหมวดรูปทรง (ไม่ต้องดาวน์โหลด)
-.\run.ps1 vision shapes-seg                 # ลองระบบ: segmentation ทุกพิกเซล (ไม่ต้องดาวน์โหลด)
-.\run.ps1 vision flowers                    # data\raw\flowers · efficientnet · จูน Optuna 8 รอบ
-.\run.ps1 vision D:\data\leaves convnext quick
-.\run.ps1 vision roads seg-b2               # โฟลเดอร์ images\ + masks\
-.\run.ps1 find flowers D:\new-photos         # ทำนายทั้งโฟลเดอร์ -> predictions.csv (+ ภาพระบายสีสำหรับ segmentation)
+run vision shapes                     # ลองระบบ: จัดหมวดรูปทรง (ไม่ต้องดาวน์โหลด)
+run vision shapes-seg                 # ลองระบบ: segmentation ทุกพิกเซล (ไม่ต้องดาวน์โหลด)
+run vision flowers                    # data\raw\flowers · efficientnet · จูน Optuna 8 รอบ
+run vision D:\data\leaves convnext quick
+run vision roads seg-b2               # โฟลเดอร์ images\ + masks\
+run predict flowers D:\new-photos         # ทำนายทั้งโฟลเดอร์ -> predictions.csv (+ ภาพระบายสีสำหรับ segmentation)
 ```
 
 | ข้อมูลใน `data\raw\<ชื่อ>\` | งาน |
@@ -241,22 +278,22 @@ PDF ใช้ข้อความในไฟล์ · PDF สแกนแล�
 | `seg-b0` (ค่าเริ่มต้นของ segmentation) | SegFormer-B0 | เร็ว ใช้ GPU ไหนก็ได้ |
 | `seg-b2` | SegFormer-B2 | แม่นกว่า ต้อง GPU 8 GB+ |
 
-ใช้โมเดลอื่นของ timm ได้ทุกตัว เช่น `.\run.ps1 vision flowers efficientnet model.arch=efficientnet_b3`
+ใช้โมเดลอื่นของ timm ได้ทุกตัว เช่น `run vision flowers efficientnet model.arch=efficientnet_b3`
 ได้ครบเหมือนงานอื่น: Optuna, Excel (classify: Confusion, PerClass, Predictions · segmentation: IoU / Dice ต่อ class, mIoU,
 pixel accuracy, ภาพตัวอย่าง ภาพจริง | คำตอบ | ที่โมเดลทาย), MLflow Registry, history, `resume`, `results`
 
-### ข้อมูลตาราง: จัดหมวด ทายตัวเลข พยากรณ์อนาคต – `.\run.ps1 table`
+### ข้อมูลตาราง: จัดหมวด ทายตัวเลข พยากรณ์อนาคต – `run table`
 
 ไฟล์ CSV / Excel / Parquet ไฟล์เดียว บอกแค่คอลัมน์ที่ต้องการทาย ระบบเลือกงานเอง:
 label → **จัดหมวด** · ตัวเลขหลายค่า (ราคา ยอดขาย อุณหภูมิ) → **regression** · ใส่คอลัมน์วันที่ → **พยากรณ์อนาคต (time series)**
 
 ```powershell
-.\run.ps1 table house-prices quick                         # ลองระบบ: ทายราคาบ้าน (ไม่ต้องดาวน์โหลด)
-.\run.ps1 table shop-sales all                             # ลองระบบ: พยากรณ์ยอดขายรายวัน 3 สาขา เทียบทุกโมเดล
-.\run.ps1 find shop-sales 30                               # ยอดขาย 30 วันข้างหน้า -> predictions.csv
-.\run.ps1 table D:\data\churn.xlsx target=Churn             # จัดหมวด (ลูกค้าจะเลิกใช้ไหม)
-.\run.ps1 table sales.csv target=sales time=date group=shop # พยากรณ์ (sales.csv อยู่ใน data\external)
-.\run.ps1 find churn D:\new_customers.csv                  # ทำนายไฟล์ใหม่
+run table house-prices quick                         # ลองระบบ: ทายราคาบ้าน (ไม่ต้องดาวน์โหลด)
+run table shop-sales all                             # ลองระบบ: พยากรณ์ยอดขายรายวัน 3 สาขา เทียบทุกโมเดล
+run predict shop-sales 30                               # ยอดขาย 30 วันข้างหน้า -> predictions.csv
+run table D:\data\churn.xlsx target=Churn             # จัดหมวด (ลูกค้าจะเลิกใช้ไหม)
+run table sales.csv target=sales time=date group=shop # พยากรณ์ (sales.csv อยู่ใน data\external)
+run predict churn D:\new_customers.csv                  # ทำนายไฟล์ใหม่
 ```
 
 | โมเดล | ใช้กับ |
@@ -284,8 +321,8 @@ Residuals, Forecast (กราฟจริง vs โมเดลตามเว�
 # ครั้งแรกถ้า PowerShell บล็อกสคริปต์
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
-.\run.ps1 setup          # ติดตั้ง uv (ถ้ายังไม่มี) + Python 3.12 + dependencies ทั้งหมด
-.\run.ps1 setup-dl       # (ไม่บังคับ) ติดตั้ง PyTorch + Lightning สำหรับโมเดล deep learning
+run setup-dev      # (ข้อมูลตารางล้วน) ติดตั้ง uv + Python 3.12 + dependencies พื้นฐาน + git / dvc init
+run setup-dl       # (ไม่บังคับ) ติดตั้ง PyTorch + Lightning สำหรับโมเดล deep learning
 ```
 
 `uv` จะสร้าง virtualenv ใน `.venv\` และล็อกเวอร์ชันทุกแพ็กเกจใน `uv.lock` ให้ได้ผลซ้ำได้ทุกเครื่อง
@@ -296,8 +333,8 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ## 2. ลองรันตัวอย่าง (breast cancer, 569 แถว, binary)
 
 ```powershell
-.\run.ps1 pipeline       # = dvc repro : prepare -> featurize -> train (Optuna 30 trials)
-.\run.ps1 ui             # เปิด MLflow UI ที่ http://127.0.0.1:5000
+run pipeline       # = dvc repro : prepare -> featurize -> train (Optuna 30 trials)
+run ui             # เปิด MLflow UI ที่ http://127.0.0.1:5000
 ```
 
 ผลลัพธ์ที่ได้
@@ -309,7 +346,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 | `reports/breast_cancer/random_forest/figures/*.png` | confusion matrix, ROC curve |
 | `models/breast_cancer/random_forest.joblib` | pipeline (preprocess + model) พร้อมใช้ |
 | `mlflow.db`, `mlruns/` | ประวัติการทดลอง + Model Registry |
-| `optuna.db` | ประวัติ Optuna study (ดูด้วย `.\run.ps1 optuna`) |
+| `optuna.db` | ประวัติ Optuna study (ดูด้วย `run optuna`) |
 
 ### รายงาน Excel มีชีตอะไรบ้าง
 
@@ -343,7 +380,7 @@ uv run mlt-train     $A.Split() model=gradient_boosting hpo.n_trials=50
 
 ดึงจาก OpenML: `uv run mlt-prepare data=openml data.loader=credit-g data.name=credit_g`
 
-ทำให้ DVC ติดตามข้อมูลของคุณ: แก้ `vars` ใน `dvc.yaml` (dataset / model / n_trials) แล้ว `.\run.ps1 pipeline`
+ทำให้ DVC ติดตามข้อมูลของคุณ: แก้ `vars` ใน `dvc.yaml` (dataset / model / n_trials) แล้ว `run pipeline`
 และ `uv run dvc add data/external/churn.csv` เพื่อเก็บเวอร์ชันไฟล์ต้นฉบับ
 
 ## 4. เปลี่ยนโมเดล / ปรับจูน
@@ -355,7 +392,7 @@ uv run mlt-train hpo=none                            # ไม่จูน ใช
 uv run mlt-train hpo.metric=recall                   # จูนเพื่อลด FN (เช่นงานแพทย์)
 uv run mlt-train evaluation.average=binary           # รายงาน precision/recall ของคลาส positive
 uv run mlt-train evaluation.threshold=0.3            # เปลี่ยน threshold ของ binary
-.\run.ps1 compare                                    # เทรนหลายโมเดลต่อกัน แล้วเทียบใน MLflow UI
+run compare                                    # เทรนหลายโมเดลต่อกัน แล้วเทียบใน MLflow UI
 ```
 
 **เพิ่มโมเดลใหม่ไม่ต้องเขียนโค้ด** – สร้าง `configs/model/xgboost.yaml`
@@ -382,8 +419,8 @@ search_space:
 ### 5.1 ติดตั้ง (ครั้งเดียว)
 
 ```powershell
-.\run.ps1 setup-gpu      # มีการ์ดจอ NVIDIA (แนะนำ – เร็วกว่า CPU หลายสิบเท่า)
-.\run.ps1 setup-yolo     # ไม่มี GPU (ใช้ CPU)
+run setup-gpu      # มีการ์ดจอ NVIDIA (แนะนำ – เร็วกว่า CPU หลายสิบเท่า)
+run setup-yolo     # ไม่มี GPU (ใช้ CPU)
 ```
 
 ### 5.2 วาง dataset
@@ -417,10 +454,10 @@ uv run mlt-train     data=yolo data.name=helmet model=yolo11n
 - Optuna จะลอง hyperparameter (lr0, momentum, augmentation, loss gain ฯลฯ) แบบสั้น `model.hpo_epochs` (10 epochs)
   จำนวน `hpo.n_trials` ครั้ง แล้วเทรนตัวจริงด้วยค่าที่ดีที่สุด `model.params.epochs` (100 epochs)
 - ปรับได้ เช่น `hpo.n_trials=20 model.hpo_epochs=15 model.params.epochs=200 model.params.imgsz=960 model.params.batch=-1`
-- ข้ามการจูน: `hpo=none`  · เลือกขนาด: `model=yolo11n|yolo11s|yolo11m|yolo11l|yolo11x` (n เร็วสุด, x แม่นสุด) · เทรนครบทุกขนาด: `.\run.ps1 fit helmet all` · ใช้ weights ของคุณ: `model.weights=models/pretrained/my.pt`
+- ข้ามการจูน: `hpo=none`  · เลือกขนาด: `model=yolo11n|yolo11s|yolo11m|yolo11l|yolo11x` (n เร็วสุด, x แม่นสุด) · เทรนครบทุกขนาด: `run fit helmet all` · ใช้ weights ของคุณ: `model.weights=models/pretrained/my.pt`
 - ลองระบบก่อนด้วยตัวอย่าง: `coco8` (detect), `coco8-seg`, `coco8-pose`, `dota8` (obb), `mnist160` (classify)
-  เช่น `.\run.ps1 fit dota8 n quick`
-- หรือผ่าน DVC: แก้ `vars` ใน `pipelines/yolo/dvc.yaml` แล้ว `.\run.ps1 yolo`
+  เช่น `run fit dota8 n quick`
+- หรือผ่าน DVC: แก้ `vars` ใน `pipelines/yolo/dvc.yaml` แล้ว `run yolo`
   (เก็บเวอร์ชันรูปด้วย `uv run dvc add data/raw/helmet`)
 
 ผลลัพธ์: `reports/<dataset>/<model>/report.xlsx`, `models/<dataset>/<model>.pt` (best weights),
@@ -494,7 +531,8 @@ ml-training/
 ├── dvc.yaml / dvc.lock      DVC pipeline (ข้อมูลตาราง)
 ├── pipelines/yolo/dvc.yaml  DVC pipeline (YOLO)
 ├── pyproject.toml / uv.lock dependencies (uv)
-├── run.bat / run.ps1        เมนู + คำสั่งลัดสำหรับ Windows (Makefile สำหรับ Linux/macOS)
+├── run.bat / run.ps1        เมนู + คำสั่งลัดสำหรับ Windows
+├── run.sh                   เมนู + คำสั่งเดียวกันสำหรับ Ubuntu / Linux server (+ เทรนเบื้องหลัง)
 └── docs/ROADMAP.md          แผนไป Level 4 และ 5
 ```
 
@@ -505,7 +543,7 @@ ml-training/
 - **ไม่มี data leakage**: preprocessing ถูก fit เฉพาะบน train และบันทึกไปกับโมเดล; Optuna ใช้ validation set,
   test set ใช้ครั้งเดียวตอนท้าย
 - **Tracked**: ทุก trial เป็น nested run ใน MLflow, โมเดลสุดท้ายถูก register ใน Model Registry อัตโนมัติ
-- **แยก notebooks ออกจาก src/** และทดสอบได้ด้วย `.\run.ps1 test`
+- **แยก notebooks ออกจาก src/** และทดสอบได้ด้วย `run test`
 
 ## 9. ทำงานร่วมกับ Git / DVC remote
 

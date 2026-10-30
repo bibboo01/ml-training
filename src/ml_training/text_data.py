@@ -35,6 +35,7 @@ from typing import Any
 import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 
+from ml_training.i18n import RUN
 from ml_training.utils import ensure_dir, log, read_json, write_json
 
 TABLE_EXTS = {".csv", ".tsv", ".xlsx", ".xls", ".json", ".jsonl", ".parquet"}
@@ -258,7 +259,7 @@ def _reader(langs: list[str] | None):
             import easyocr
         except ImportError as e:
             raise ImportError(
-                "Images / scanned PDFs need OCR: .\\run.ps1 setup-ocr (or uv sync --extra ocr)"
+                f"Images / scanned PDFs need OCR: {RUN} setup-ocr (or uv sync --extra ocr)"
             ) from e
         import torch
 

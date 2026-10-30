@@ -25,6 +25,7 @@ from omegaconf import DictConfig
 
 from ml_training import lineage
 from ml_training.friendly import friendly_errors
+from ml_training.i18n import RUN
 from ml_training.utils import CONFIG_DIR, log, read_json
 from ml_training.xai import analysis as A
 from ml_training.xai.cam import YoloExplainer, overlay
@@ -64,9 +65,7 @@ def pick_images(processed: Path, task: str, split: str, n: int, seed: int) -> tu
 def find_weights(cfg: DictConfig) -> Path:
     w = Path(cfg.get("weights") or Path(cfg.paths.run_model).with_suffix(".pt"))
     if not w.exists():
-        raise FileNotFoundError(
-            f"{w} not found – train first (.\\run.ps1 fit ...) or pass +weights="
-        )
+        raise FileNotFoundError(f"{w} not found – train first ({RUN} fit ...) or pass +weights=")
     return w
 
 

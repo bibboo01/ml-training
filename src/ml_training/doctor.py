@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib.util
 import platform
 import shutil
+import subprocess
 import sys
 
 from ml_training.i18n import tr
@@ -18,23 +19,23 @@ PARTS = [
         "ultralytics",
         "YOLO (ตรวจจับ / แยกวัตถุ / pose / จัดหมวดภาพ)",
         "YOLO (detect / segment / pose / classify)",
-        "setup-gpu",
+        "setup",
     ),
     (
         "transformers",
         "ข้อความ และเอกสาร (HuggingFace)",
         "text and documents (HuggingFace)",
-        "setup-gpu",
+        "setup",
     ),
-    ("pythainlp", "ตัดคำภาษาไทย", "Thai word segmentation", "setup-gpu"),
+    ("pythainlp", "ตัดคำภาษาไทย", "Thai word segmentation", "setup"),
     (
         "timm",
         "จัดหมวดภาพ ResNet / EfficientNet / ConvNeXt / ViT",
         "image models ResNet / EfficientNet / ConvNeXt / ViT",
-        "setup-gpu",
+        "setup",
     ),
-    ("lightgbm", "LightGBM สำหรับข้อมูลตาราง", "LightGBM for tables", "setup-gpu"),
-    ("xgboost", "XGBoost สำหรับข้อมูลตาราง", "XGBoost for tables", "setup-gpu"),
+    ("lightgbm", "LightGBM สำหรับข้อมูลตาราง", "LightGBM for tables", "setup"),
+    ("xgboost", "XGBoost สำหรับข้อมูลตาราง", "XGBoost for tables", "setup"),
     (
         "easyocr",
         "OCR อ่านเอกสารสแกน / รูปเอกสาร (ไม่บังคับ)",
@@ -42,6 +43,57 @@ PARTS = [
         "setup-ocr",
     ),
 ]
+
+
+def linux_checks(ok: str, no: str) -> None:
+    """Ubuntu server: NVIDIA driver and the system libraries OpenCV / YOLO load."""
+    import ctypes.util
+
+    if shutil.which("nvidia-smi"):
+        q = "--query-gpu=name,driver_version,memory.total"
+        try:
+            out = subprocess.run(
+                ["nvidia-smi", q, "--format=csv,noheader"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            out = ""
+        for line in out.splitlines():
+            print(f"{ok}nvidia-smi: {line.strip()}")
+        if not out:
+            print(
+                no
+                + tr(
+                    "nvidia-smi ใช้งานไม่ได้ – ตรวจไดรเวอร์ NVIDIA",
+                    "nvidia-smi failed – check the NVIDIA driver",
+                )
+            )
+    else:
+        print(
+            no
+            + tr(
+                "ไม่พบ nvidia-smi – ถ้ามีการ์ดจอให้ติดตั้งไดรเวอร์: sudo ubuntu-drivers install",
+                "nvidia-smi not found – if there is a GPU, install the driver: "
+                "sudo ubuntu-drivers install",
+            )
+        )
+    if ctypes.util.find_library("GL") and ctypes.util.find_library("glib-2.0"):
+        print(
+            ok
+            + tr(
+                "ไลบรารีระบบสำหรับ OpenCV (libGL, glib)", "system libraries for OpenCV (libGL, glib)"
+            )
+        )
+    else:
+        print(
+            no
+            + tr(
+                "ยังไม่มี libGL / glib ที่ YOLO ใช้ – พิมพ์ run setup-system",
+                "libGL / glib that YOLO needs are missing – type run setup-system",
+            )
+        )
 
 
 def main() -> int:
@@ -75,18 +127,20 @@ def main() -> int:
             if "+cpu" in torch.__version__ or not torch.version.cuda:
                 print(
                     tr(
-                        "       ถ้ามีการ์ดจอ NVIDIA ให้รัน .\\run.ps1 setup-gpu",
-                        "       If this PC has an NVIDIA GPU, run .\\run.ps1 setup-gpu",
+                        "       ถ้ามีการ์ดจอ NVIDIA ให้พิมพ์ .\\run.ps1 setup",
+                        "       If this computer has an NVIDIA GPU, type .\\run.ps1 setup",
                     )
                 )
     except Exception:  # noqa: BLE001
         print(
             no
             + tr(
-                "ยังไม่มี PyTorch – รัน .\\run.ps1 setup-gpu หรือ setup-yolo",
-                "PyTorch is missing – run .\\run.ps1 setup-gpu or setup-yolo",
+                "ยังไม่มี PyTorch – พิมพ์ .\\run.ps1 setup",
+                "PyTorch is missing – type .\\run.ps1 setup",
             )
         )
+    if sys.platform.startswith("linux"):
+        linux_checks(ok, no)
     for mod, th, en, cmd in PARTS:
         have = importlib.util.find_spec(mod) is not None
         how = tr(f" – ติดตั้งด้วย .\\run.ps1 {cmd}", f" – install with .\\run.ps1 {cmd}")

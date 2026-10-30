@@ -1,48 +1,38 @@
 ﻿<#
-  Windows helper for ml-training.  Easiest: double-click run.bat (or type .\run.ps1) for a menu.
-  Choose 1 "Train a new model", drag a data folder / file in, and it picks the task and model.  (ภาษาไทย: More tools > Language)
-    .\run.ps1 auto D:\data\helmet          # same from the command line: look at the data, pick the task, train
-  YOLO, every task: detect / segment / classify / pose / obb (read from the dataset automatically)
-  dataset = folder in data\raw, a full path, or a sample: coco8 coco8-seg coco8-pose dota8 mnist160
-    .\run.ps1 fit helmet                    # yolo11n, full (Optuna tuning + 100 epochs)
-    .\run.ps1 fit helmet m quick            # yolo11m, quick test (no tuning, 30 epochs)
-    .\run.ps1 fit helmet all quick          # every size n,s,m,l,x  (26m / all26 = YOLO26)
-    .\run.ps1 fit D:\datasets\leaves s      # dataset outside the project (copied to data\raw)
-    .\run.ps1 fit helmet s full accurate    # tuning preset: fast balanced accurate small_data freeze augment custom
-    .\run.ps1 fit helmet n full data.task=segment model.params.epochs=200   # extra overrides
-    .\run.ps1 text reviews                  # TEXT / DOCUMENTS (Thai OK): classify texts, NER, document folders
-    .\run.ps1 text thai-ner tiny quick      # sizes tiny small base thai large · samples thai-sentiment thai-ner thai-docs
-    .\run.ps1 find reviews "ส่งไว ของดี"     # predict a sentence, a CSV, a PDF / Word / image, or a folder of them
-    .\run.ps1 vision flowers convnext       # IMAGES beyond YOLO: classify (resnet50 efficientnet convnext vit) or
-    .\run.ps1 vision roads seg-b0 quick     #   pixel segmentation (seg-b0 seg-b2) · samples shapes shapes-seg (tiny / seg-tiny)
-    .\run.ps1 table D:\sales.xlsx target=price  # TABLES (CSV / Excel): classify, predict a number (regression) or
-    .\run.ps1 table sales.csv target=sales time=date group=shop all   #   forecast a time series · models lightgbm xgboost ... all
-    .\run.ps1 find shop-sales 30            # forecast the next 30 periods · samples house-prices shop-sales breast_cancer iris
-    .\run.ps1 resume helmet                 # continue a training that stopped (power cut, Ctrl+C, crash)
-    .\run.ps1 results helmet                # compare all trained sizes (+ reports\helmet\compare.xlsx)
-    .\run.ps1 find helmet D:\images         # predict with the best trained model
-    .\run.ps1 find helmet D:\cam\clip.mp4 m # ... or with a chosen size
-    .\run.ps1 explain helmet               # XAI: heatmaps + why each detection + statistics Excel
-    .\run.ps1 explain helmet m 300         # ... model size m, 300 test images (default 100)
-    .\run.ps1 clean helmet                  # delete results of one dataset (asks first; add raw = data too)
-    .\run.ps1 clean all                     # delete every result + MLflow/Optuna history
-    .\run.ps1 tune                          # make / view / edit tuning presets (common settings only)
-    .\run.ps1 history                       # every prepare / train / predict / clean (+ logs\history.xlsx)
-  Setup / tools:
-    .\run.ps1 setup-yolo   # install (CPU)          .\run.ps1 setup-gpu   # install (NVIDIA GPU)
-    .\run.ps1 setup-ocr    # + OCR for scanned PDFs / document images (Thai + English)
-    .\run.ps1 ui           # MLflow UI http://127.0.0.1:5000
-    .\run.ps1 optuna       # Optuna dashboard http://127.0.0.1:8080
-  Tabular data:  .\run.ps1 setup | pipeline | compare | train model=svm | test
-  Raw commands:  .\run.ps1 prepare|featurize|train|predict <hydra overrides>
-  If scripts are blocked:  Set-ExecutionPolicy -Scope CurrentUser RemoteSigned  (or use run.bat)
+  ml-training for Windows (Ubuntu: run.sh).  Double-click run.bat, or after `run setup` just type: run
+    run                          menu  (ภาษาไทย: More tools > Language)
+    run setup                    install everything (finds the NVIDIA GPU itself), then check this PC
+    run train D:\data\helmet      look at the data, pick the task and model, train   (+ quick | best)
+    run predict helmet D:\new      predict with the best model (image, folder, video, csv, PDF, sentence, N = forecast)
+    run results helmet           scores of every model + Excel
+    run status                   trained models and trainings that stopped
+    run resume                   continue a training that stopped (power cut, Ctrl+C, crash)
+    run check | run ui | run clean helmet | run help
+  Choose everything yourself:
+    run fit helmet m quick                       YOLO: n s m l x all (26m = YOLO26), quick | full, tuning preset
+    run fit helmet n full data.task=segment model.params.epochs=200   (extra Hydra overrides)
+    run text data\raw\reviews.csv thai           text / documents: tiny small base thai large
+    run vision D:\data\leaves efficientnet       tiny resnet50 efficientnet convnext vit seg-tiny seg-b0 seg-b2
+    run table D:\sales.xlsx target=amount time=date group=shop all     (lightgbm xgboost ... all)
+    run explain helmet m 300                     XAI heatmaps + statistics Excel
+    run history | run tune | run optuna | run test
+    run train model=svm ...  /  run predict ...  /  run prepare|featurize ...   (Hydra overrides, as before)
+  Setup parts: setup-gpu  setup-yolo (CPU)  setup-ocr  setup-dev
+  `run` works in new terminals after `run setup`; until then use .\run.ps1 (PowerShell) or run.bat (cmd).
 #>
 param(
     [Parameter(Position = 0)][string]$Task = "menu",
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
 )
 $ErrorActionPreference = "Stop"
+$Orig = $env:MLT_CWD; if (-not $Orig) { $Orig = (Get-Location).Path }
 Set-Location $PSScriptRoot
+# paths typed relative to the folder `run` was started in
+if ($Rest -and $Orig.TrimEnd('\') -ne $PSScriptRoot.TrimEnd('\')) {
+    $Rest = @($Rest | ForEach-Object {
+        if ($_ -and $_ -notmatch '=' -and -not [IO.Path]::IsPathRooted($_) -and (Test-Path -LiteralPath (Join-Path $Orig $_))) { (Resolve-Path -LiteralPath (Join-Path $Orig $_)).Path } else { $_ }
+    })
+}
 # Thai text in the console (Windows PowerShell 5.1 defaults to the ANSI code page)
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8; [Console]::InputEncoding = [Text.Encoding]::UTF8 } catch { }
 $OutputEncoding = [Text.Encoding]::UTF8
@@ -56,7 +46,7 @@ $env:MLFLOW_DISABLE_AGENT_HINT = "1"
 if (Test-Path .gpu) { $env:UV_NO_SYNC = "1" }
 $CudaIndex = "https://download.pytorch.org/whl/cu126"
 $Sizes = @("yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x")
-$HelpLines = 39
+$HelpLines = 21
 
 # YOLO + text (HuggingFace) + vision (timm) + LightGBM / XGBoost packages, + OCR after setup-ocr; -Gpu = CUDA build of torch
 function Sync-Env([switch]$Gpu) {
@@ -64,6 +54,9 @@ function Sync-Env([switch]$Gpu) {
     $extras = @("--extra", "yolo", "--extra", "nlp", "--extra", "vision", "--extra", "boost")
     if (Test-Path .ocr) { $extras += @("--extra", "ocr") }
     uv sync --group dev @extras
+    # removing OCR (opencv-python-headless) deletes files cv2 shares with opencv-python: put them back
+    uv run --no-sync python -c "import os, sys; sys.stderr = open(os.devnull, 'w'); import cv2; cv2.imshow"
+    if ($LASTEXITCODE -ne 0) { uv sync --group dev @extras --reinstall-package opencv-python }
     if ($Gpu) {
         uv pip install --reinstall torch torchvision --index-url $CudaIndex
         New-Item .gpu -ItemType File -Force | Out-Null
@@ -117,7 +110,7 @@ function Get-ModeArgs([string]$Mode) {
 }
 
 function Invoke-Detect([string]$Ds, [string]$Size, [string]$Mode, [string[]]$Extra) {
-    if (-not $Ds) { throw "Usage: .\run.ps1 fit <dataset> [n|s|m|l|x|all] [quick|full] [overrides]" }
+    if (-not $Ds) { throw "Usage: run fit <dataset> [n|s|m|l|x|all] [quick|full] [overrides]" }
     if (-not $Mode) { $Mode = "full" }
     $d = Get-Dataset $Ds
     $models = Get-Sizes $Size
@@ -148,7 +141,7 @@ function Invoke-Detect([string]$Ds, [string]$Size, [string]$Mode, [string[]]$Ext
 }
 
 function Show-Results([string]$Name) {
-    if (-not $Name) { throw "Usage: .\run.ps1 results <dataset>" }
+    if (-not $Name) { throw "Usage: run results <dataset>" }
     Say "`n=== Results: $Name ==="
     uv run python -m ml_training.compare $Name
 }
@@ -174,7 +167,7 @@ function Get-TextDataset([string]$Ds) {
 }
 
 function Invoke-Text([string]$Ds, [string]$Size, [string]$Mode, [string[]]$Extra) {
-    if (-not $Ds) { throw "Usage: .\run.ps1 text <dataset|file|folder> [tiny|small|base|thai|large] [quick|full] [overrides]" }
+    if (-not $Ds) { throw "Usage: run text <dataset|file|folder> [tiny|small|base|thai|large] [quick|full] [overrides]" }
     if (-not $Mode) { $Mode = "full" }
     $d = Get-TextDataset $Ds
     $m = Get-TextModel $Size
@@ -222,7 +215,7 @@ function Get-VisionDataset([string]$Ds) {
 }
 
 function Invoke-Vision([string]$Ds, [string]$Size, [string]$Mode, [string[]]$Extra) {
-    if (-not $Ds) { throw "Usage: .\run.ps1 vision <dataset|folder> [$($VisionModels.Keys -join '|')] [quick|full] [overrides]" }
+    if (-not $Ds) { throw "Usage: run vision <dataset|folder> [$($VisionModels.Keys -join '|')] [quick|full] [overrides]" }
     if (-not $Mode) { $Mode = "full" }
     $d = Get-VisionDataset $Ds
     $dataArgs = @($d.Args) + @($Extra | Where-Object { $_ -match '^\+?data\.' })
@@ -262,7 +255,7 @@ function Get-TableDataset([string]$Ds) {
 }
 
 function Invoke-Table([string]$Ds, [string]$Models, [string]$Mode, [string[]]$Extra) {
-    if (-not $Ds) { throw "Usage: .\run.ps1 table <file|name> target=<column> [time=<date column>] [group=<column>] [$($TableModels -join '|')|all] [quick|full]" }
+    if (-not $Ds) { throw "Usage: run table <file|name> target=<column> [time=<date column>] [group=<column>] [$($TableModels -join '|')|all] [quick|full]" }
     if (-not $Mode) { $Mode = "full" }
     $d = Get-TableDataset $Ds
     # short names: target=price time=date group=shop task=regress
@@ -290,11 +283,11 @@ function Invoke-Table([string]$Ds, [string]$Models, [string]$Mode, [string[]]$Ex
     if ($done.Count -eq 0) { throw "Training failed (see the message above)" }
     Show-Results $d.Name
     if ($done.Count -eq 1) { $script:LastReport = "reports\$($d.Name)\$($done[0])\report.xlsx" } else { $script:LastReport = "reports\$($d.Name)\compare.xlsx" }
-    if ($task -eq "forecast") { Say "Forecast the future: .\run.ps1 find $($d.Name) 30" "Green" }
+    if ($task -eq "forecast") { Say "Forecast the future: run predict $($d.Name) 30" "Green" }
 }
 
 function Invoke-Find([string]$Ds, [string]$InputPath, [string]$Size, [string[]]$Extra) {
-    if (-not $Ds -or -not $InputPath) { throw "Usage: .\run.ps1 find <dataset> <image|folder|video|url> [n|s|m|l|x]" }
+    if (-not $Ds -or -not $InputPath) { throw "Usage: run predict <dataset> <image|folder|video|url> [n|s|m|l|x]" }
     $d = Get-Dataset $Ds
     if ($Size -eq "tiny") { $m = @("img_tiny", "text_tiny")[[int](Test-Path "models\$($d.Name)\text_tiny")] }
     elseif ($Size -and ($Size -match '^(text_)?(tiny|small|base|thai|large)$')) { $m = Get-TextModel $Size }
@@ -303,7 +296,7 @@ function Invoke-Find([string]$Ds, [string]$InputPath, [string]$Size, [string[]]$
     elseif ($Size) { $m = (Get-Sizes $Size)[0] }
     else {
         $m = (uv run python -m ml_training.compare $d.Name --best | Select-Object -Last 1)
-        if ($LASTEXITCODE -ne 0 -or -not $m) { throw "No trained model for '$($d.Name)'. Train first: .\run.ps1 fit $Ds  (or .\run.ps1 text $Ds)" }
+        if ($LASTEXITCODE -ne 0 -or -not $m) { throw "No trained model for '$($d.Name)'. Train first: run train <data>" }
     }
     $src = $InputPath.Trim().Trim('"')
     $what = "+input='$src'"
@@ -336,12 +329,12 @@ function Invoke-Find([string]$Ds, [string]$InputPath, [string]$Size, [string[]]$
 }
 
 function Invoke-Explain([string]$Ds, [string]$Size, [string]$Count, [string[]]$Extra) {
-    if (-not $Ds) { throw "Usage: .\run.ps1 explain <dataset> [n|s|m|l|x] [images]" }
+    if (-not $Ds) { throw "Usage: run explain <dataset> [n|s|m|l|x] [images]" }
     $d = Get-Dataset $Ds
     if ($Size) { $m = (Get-Sizes $Size)[0] }
     else {
         $m = (uv run python -m ml_training.compare $d.Name --best | Select-Object -Last 1)
-        if ($LASTEXITCODE -ne 0 -or -not $m) { throw "No trained model for '$($d.Name)'. Train first: .\run.ps1 fit $Ds" }
+        if ($LASTEXITCODE -ne 0 -or -not $m) { throw "No trained model for '$($d.Name)'. Train first: run fit $Ds" }
     }
     $more = @($Extra)
     if ($Count) { $more += "xai.max_images=$Count" }
@@ -373,7 +366,7 @@ function Invoke-Resume([string]$Ds, [string]$Size) {
         if (-not $u) { Say "Nothing to resume - every training finished." "Green"; return }
         Say "Unfinished trainings:"
         $u | ForEach-Object { $f = $_ -split '\|'; Write-Host ("  {0,-16} {1,-9} {2}  ({3})" -f $f[0], $f[1], $f[2], $f[3]) }
-        Say "Continue one with: .\run.ps1 resume <dataset> [size]"
+        Say "Continue one with: run resume <dataset> [size]"
         return
     }
     $name = (Get-Dataset $Ds).Name
@@ -386,10 +379,43 @@ function Invoke-Resume([string]$Ds, [string]$Size) {
 }
 
 function Invoke-Clean([string[]]$A) {
-    if (-not $A -or -not $A[0]) { throw "Usage: .\run.ps1 clean <dataset|all> [raw]" }
+    if (-not $A -or -not $A[0]) { throw "Usage: run clean <dataset|all> [raw]" }
     $flags = @()
     if ($A -contains "raw") { $flags += "--raw" }
     uv run python -m ml_training.clean $A[0] @flags
+}
+
+# `run` in any new terminal (cmd or PowerShell): %LOCALAPPDATA%\ml-training\bin\run.cmd on the user PATH
+function Install-Command {
+    $bin = Join-Path $env:LOCALAPPDATA "ml-training\bin"
+    $other = Get-Command run -ErrorAction SilentlyContinue | Where-Object { $_.Source -and -not $_.Source.StartsWith($bin) -and -not $_.Source.StartsWith($PSScriptRoot) }
+    if ($other) { Say ((T "มีคำสั่ง 'run' อื่นอยู่แล้ว - ใช้ run.bat / .\run.ps1 แทน: " "Another 'run' command exists - keep using run.bat / .\run.ps1: ") + $other[0].Source) "Yellow"; return }
+    New-Item $bin -ItemType Directory -Force | Out-Null
+    Set-Content (Join-Path $bin "run.cmd") "@echo off`r`nset MLT_NOPAUSE=1`r`ncall `"$PSScriptRoot\run.bat`" %*" -Encoding Default
+    $p = [Environment]::GetEnvironmentVariable("Path", "User"); if (-not $p) { $p = "" }
+    if (($p -split ';') -notcontains $bin) {
+        [Environment]::SetEnvironmentVariable("Path", (($p.TrimEnd(';') + ";$bin").TrimStart(';')), "User")
+        Say (T "ติดตั้งคำสั่ง 'run' แล้ว - เปิดหน้าต่าง terminal ใหม่แล้วพิมพ์ run ได้จากทุกโฟลเดอร์" "Installed the 'run' command - open a new terminal and type run from any folder") "Green"
+    }
+}
+
+function Invoke-Setup {
+    Need-Uv
+    if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { Say (T "พบการ์ดจอ NVIDIA - ติดตั้งแบบ GPU" "NVIDIA GPU found - installing the GPU version") "Green"; Sync-Env -Gpu }
+    else { Say (T "ไม่พบการ์ดจอ NVIDIA - ติดตั้งแบบ CPU" "No NVIDIA GPU - installing the CPU version") "Yellow"; Remove-Item .gpu -ErrorAction SilentlyContinue; Sync-Env }
+    Install-Command
+    uv run python -m ml_training.doctor
+    Say ((T "`nพร้อมแล้ว! ลองเลย:  " "`nReady! Try:  ") + "run    " + (T "หรือ" "or") + "  run train shop-sales quick") "Green"
+}
+
+function Show-Status {
+    $t = @(Get-TrainedNames)
+    Say ((T "โมเดลที่เทรนแล้ว: " "Trained models: ") + $(if ($t) { $t -join ', ' } else { T "ยังไม่มี" "none yet" }))
+    $u = Get-Unfinished
+    if ($u) {
+        Say (T "งานที่ค้าง (run resume):" "Stopped trainings (run resume):") "Yellow"
+        $u | ForEach-Object { $f = $_ -split '\|'; Write-Host ("  {0,-16} {1,-9} {2}  ({3})" -f $f[0], $f[1], $f[2], $f[3]) }
+    } else { Say (T "ไม่มีงานค้าง" "No stopped trainings") "Green" }
 }
 
 # ----------------------------------------------------------------------------- menu
@@ -523,7 +549,7 @@ $SampleKinds = [ordered]@{
     "shop-sales"     = @("table", "forecast", "ตาราง: พยากรณ์ยอดขายรายวัน", "table: forecast daily sales")
 }
 
-function Invoke-Wizard([string]$Given) {
+function Invoke-Wizard([string]$Given, [string]$Level) {
     Say (T "`n========== เทรนโมเดลใหม่แบบอัตโนมัติ ==========" "`n========== Train a new model automatically ==========")
     if ($Given) { $ans = $Given.Trim().Trim('"') } else {
     Say (T "ลากโฟลเดอร์หรือไฟล์ข้อมูลมาวางในหน้าต่างนี้แล้วกด Enter  หรือพิมพ์หมายเลขด้านล่าง" "Drag a data folder or file into this window and press Enter, or type a number below") "White"
@@ -572,11 +598,15 @@ function Invoke-Wizard([string]$Given) {
         } elseif ($info.task -eq "forecast") { $extra += "task=regress" }
     }
 
+    $preset = @{ quick = 0; standard = 1; full = 1; best = 2; accurate = 2 }
+    if ($Level -and $preset.ContainsKey($Level.ToLower())) { $level = $preset[$Level.ToLower()] } else {
+    $Level = ""
     Say (T "`nต้องการแบบไหน:" "`nHow thorough:")
     $level = Read-Choice (T "เลือก" "Choose") @(
         (T "ทดลองเร็ว     - ไม่กี่นาที ไว้ดูว่าระบบทำงาน / ข้อมูลใช้ได้" "Quick        - a few minutes, to check the data works"),
         (T "มาตรฐาน       - จูนค่าอัตโนมัติ ได้โมเดลที่ดี (แนะนำ)" "Standard     - automatic tuning, a good model (recommended)"),
         (T "แม่นที่สุด     - โมเดลใหญ่ขึ้น / เทียบหลายโมเดล ใช้เวลานาน" "Most accurate - bigger model / compare several, takes long")) 2
+    }
     $mode = @("quick", "full", "full")[$level]
     $ds = $info.path
     $script:LastReport = $null
@@ -585,7 +615,7 @@ function Invoke-Wizard([string]$Given) {
             $size = @("n", "s", "m")[$level]; if (-not $info.gpu -and -not $sample -and $level -gt 0) { $size = "n" }
             $tune = @("default", "default", "accurate")[$level]
             Say ((T "`nจะเทรน: YOLO11" "`nWill train: YOLO11") + "$size  ($($info.task), $mode)") "White"
-            if (-not (Ask-Yes (T "เริ่มเลยไหม" "Start now?"))) { return }
+            if (-not $Level -and -not (Ask-Yes (T "เริ่มเลยไหม" "Start now?"))) { return }
             Invoke-Detect $ds $size $mode @("tune=$tune", "data.task=$($info.task)")
         }
         "vision" {
@@ -593,7 +623,7 @@ function Invoke-Wizard([string]$Given) {
             else { $size = @("efficientnet", "efficientnet", "convnext")[$level]; $vt = "classify" }
             if ($sample) { $size = @("tiny", "seg-tiny")[[int]($vt -eq "segment")] }
             Say ((T "`nจะเทรน: " "`nWill train: ") + "$size  ($vt, $mode)") "White"
-            if (-not (Ask-Yes (T "เริ่มเลยไหม" "Start now?"))) { return }
+            if (-not $Level -and -not (Ask-Yes (T "เริ่มเลยไหม" "Start now?"))) { return }
             Invoke-Vision $ds $size $mode @("data.task=$vt")
         }
         "text" {
@@ -602,17 +632,19 @@ function Invoke-Wizard([string]$Given) {
             if ($level -eq 2 -and $info.vram_gb -lt 12) { $size = $std; Say (T "  การ์ดจอเล็กกว่า 12 GB - ใช้โมเดล $std แทน large" "  GPU under 12 GB - using $std instead of large") "Yellow" }
             if ($sample) { $size = "tiny" }
             Say ((T "`nจะเทรน: โมเดลข้อความ " "`nWill train: text model ") + "$size  ($($info.task), $mode)") "White"
-            if (-not (Ask-Yes (T "เริ่มเลยไหม" "Start now?"))) { return }
+            if (-not $Level -and -not (Ask-Yes (T "เริ่มเลยไหม" "Start now?"))) { return }
             Invoke-Text $ds $size $mode @()
         }
         "table" {
             $models = @("lightgbm", "lightgbm", "all")[$level]
             Say ((T "`nจะเทรน: " "`nWill train: ") + "$models  ($mode)") "White"
-            if (-not (Ask-Yes (T "เริ่มเลยไหม" "Start now?"))) { return }
+            if (-not $Level -and -not (Ask-Yes (T "เริ่มเลยไหม" "Start now?"))) { return }
             Invoke-Table $ds $models $mode $extra
         }
     }
-    Say (T "`nเสร็จแล้ว! ใช้โมเดลทำนายข้อมูลใหม่ได้ที่เมนู 3 · ดูผล / เทียบโมเดลที่เมนู 4" "`nDone! Predict new data with menu 3 · compare models with menu 4") "Green"
+    $nm = Split-Path ([string]$ds).TrimEnd('\', '/') -Leaf
+    if (Test-Path $ds -PathType Leaf) { $nm = [IO.Path]::GetFileNameWithoutExtension($nm) }
+    Say (T "`nเสร็จแล้ว! ทำนายข้อมูลใหม่: run predict $nm <ไฟล์/โฟลเดอร์> · ดูผล: run results $nm" "`nDone! Predict new data: run predict $nm <file/folder> · scores: run results $nm") "Green"
     Open-Report
 }
 
@@ -708,7 +740,7 @@ function Show-MoreMenu {
         Say (T "`n---------- เครื่องมือเพิ่มเติม ----------" "`n---------- More tools ----------")
         $k = Read-Choice (T "เลือก" "Choose") @(
             (T "ตรวจเครื่อง (การ์ดจอ ส่วนที่ติดตั้งแล้ว พื้นที่ดิสก์)" "Check this computer (GPU, installed parts, disk)"),
-            (T "ติดตั้ง / อัปเดต (CPU หรือการ์ดจอ NVIDIA)" "Install / update (CPU or NVIDIA GPU)"),
+            (T "ติดตั้ง / อัปเดต (หาการ์ดจอเอง + ติดตั้งคำสั่ง run)" "Install / update (finds the GPU, installs the run command)"),
             (T "ติดตั้ง OCR (อ่านเอกสารสแกน / รูปเอกสาร)" "Install OCR (scanned documents)"),
             (T "ตั้งค่าการจูน YOLO (ดู / สร้าง / แก้ preset)" "YOLO tuning presets (view / create / edit)"),
             (T "เปิด MLflow (ประวัติทุกการเทรน กราฟ และโมเดลที่ลงทะเบียน)" "Open MLflow UI (all runs, metrics, model registry)"),
@@ -722,10 +754,7 @@ function Show-MoreMenu {
         try {
             switch ($k) {
                 0 { uv run python -m ml_training.doctor }
-                1 {
-                    $g = Read-Choice (T "ติดตั้งสำหรับ" "Install for") @((T "CPU อย่างเดียว" "CPU only"), (T "การ์ดจอ NVIDIA (CUDA)" "NVIDIA GPU (CUDA)"))
-                    if ($g -eq 0) { & $PSCommandPath setup-yolo } else { & $PSCommandPath setup-gpu }
-                }
+                1 { Invoke-Setup }
                 2 { & $PSCommandPath setup-ocr }
                 3 { Show-TuningMenu }
                 4 { Start-Process "http://127.0.0.1:5000"; uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db" --port 5000 }
@@ -833,7 +862,26 @@ switch ($Task) {
         Invoke-Detect $ds $size $mode $extra
         break
     }
-    "results" { Show-Results $Rest[0] }
+    "results" { if ($Rest -and $Rest[0]) { Show-Results $Rest[0] } else { Show-Results (Select-Dataset -Trained) } }
+    "status" { Show-Status }
+    "check" { uv run python -m ml_training.doctor }
+    "train" {
+        # run train <data> [quick|standard|best]; Hydra overrides (key=value) = the raw trainer
+        if (-not $Rest) { Invoke-Wizard }
+        elseif ($Rest[0] -match '=' -or $Rest[0] -like '-*') { uv run mlt-train @Rest }
+        else { Invoke-Wizard $Rest[0] $(if (@($Rest).Count -gt 1) { $Rest[1] } else { "" }) }
+        break
+    }
+    "predict" {
+        if (-not $Rest -or $Rest[0] -match '=' -or $Rest[0] -like '-*') { uv run mlt-predict @Rest }
+        else {
+            $a = @($Rest); $size = $null; $i = 2
+            if ($a.Count -gt $i -and $a[$i] -notmatch '=') { $size = $a[$i]; $i++ }
+            $extra = @(); if ($a.Count -gt $i) { $extra = $a[$i..($a.Count - 1)] }
+            Invoke-Find $a[0] $a[1] $size $extra
+        }
+        break
+    }
     "text" {
         # text <dataset> [size] [quick|full] [preset] [key=value] in any order after the dataset
         $a = @($Rest); $size = $null; $mode = $null; $extra = @()
@@ -862,7 +910,7 @@ switch ($Task) {
         if ($script:LastReport -and (Test-Path $script:LastReport)) { Invoke-Item $script:LastReport }
         break
     }
-    { $_ -in "auto", "wizard" } { Invoke-Wizard $(if ($Rest) { $Rest[0] } else { "" }); break }
+    { $_ -in "auto", "wizard" } { Invoke-Wizard $(if ($Rest) { $Rest[0] } else { "" }) $(if (@($Rest).Count -gt 1) { $Rest[1] } else { "" }); break }
     "doctor" { uv run python -m ml_training.doctor }
     { $_ -in "table", "tabular" } {
         # table <file|name> [model|all] [quick|full] [target=.. time=.. group=.. key=value] in any order
@@ -901,12 +949,13 @@ switch ($Task) {
         $extra = @(); if ($a.Count -gt $i) { $extra = $a[$i..($a.Count - 1)] }
         Invoke-Find $a[0] $a[1] $size $extra
     }
-    "setup" {
+    { $_ -in "setup", "install" } { Invoke-Setup; break }
+    "setup-dev" {
         Need-Uv
         uv sync --group dev
         if (-not (Test-Path .git)) { git init -b main }
         if (-not (Test-Path .dvc)) { uv run dvc init }
-        Write-Host "Ready. Next: .\run.ps1 pipeline" -ForegroundColor Green
+        Write-Host "Ready. Next: run pipeline" -ForegroundColor Green
     }
     "setup-dl" { Need-Uv; uv sync --group dev --extra dl }
     "setup-yolo" { Need-Uv; Remove-Item .gpu -ErrorAction SilentlyContinue; Sync-Env }
@@ -914,7 +963,7 @@ switch ($Task) {
     "setup-ocr" { Need-Uv; New-Item .ocr -ItemType File -Force | Out-Null; Sync-Env -Gpu:(Test-Path .gpu) }
     "yolo"     { uv run dvc repro pipelines/yolo/dvc.yaml @Rest; uv run dvc metrics show }
     "yolo-all" {
-        if (@($Rest).Count -gt 0 -and $Rest[0] -notmatch '=') {   # .\run.ps1 yolo-all helmet [quick|full]
+        if (@($Rest).Count -gt 0 -and $Rest[0] -notmatch '=') {   # run yolo-all helmet [quick|full]
             $mode = "full"; if (@($Rest).Count -gt 1) { $mode = $Rest[1] }
             Invoke-Detect $Rest[0] "all" $mode @()
         } else {                                                  # old style: yolo-all data=yolo data.name=helmet
@@ -923,8 +972,6 @@ switch ($Task) {
     }
     "prepare"  { uv run mlt-prepare @Rest }
     "featurize" { uv run mlt-featurize @Rest }
-    "train"    { uv run mlt-train @Rest }
-    "predict"  { uv run mlt-predict @Rest }
     "pipeline" { uv run dvc repro @Rest; uv run dvc metrics show }
     "compare"  { uv run mlt-train -m "model=random_forest,logistic_regression,gradient_boosting,svm" @Rest }
     "ui"       { uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db" --port 5000 }

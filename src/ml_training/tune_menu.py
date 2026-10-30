@@ -19,6 +19,7 @@ from typing import Any
 
 import yaml
 
+from ml_training.i18n import RUN
 from ml_training.utils import CONFIG_DIR
 
 TUNE_DIR = Path(CONFIG_DIR) / "tune"
@@ -213,7 +214,7 @@ def create(read=input) -> int:
     path = save(build_preset(base, answers, name), name, base)
     ok, msg = check(name)
     print(f"\nSaved {path}\n{'Checked' if ok else 'PROBLEM'}: {msg}")
-    print(f"Train with it:  .\\run.ps1 fit <dataset> <size> full {name}   (or pick it in the menu)")
+    print(f"Train with it:  {RUN} fit <dataset> <size> full {name}   (or pick it in the menu)")
     return 0 if ok else 1
 
 
